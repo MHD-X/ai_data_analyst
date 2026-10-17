@@ -65,7 +65,7 @@ class MemoryConfig:
 # ============ إعدادات الواجهة ============
 @dataclass
 class UIConfig:
-    page_title: str = "AI Data Analyst"
+    page_title: str = "between-data"
     page_icon: str = "🧠"
     layout: str = "wide"
     default_language: str = "ar"   # ar | en
