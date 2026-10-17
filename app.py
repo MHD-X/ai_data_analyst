@@ -5,10 +5,15 @@ app.py — نقطة الدخول (Streamlit)
 العقد مع مكوّنات الواجهة (كل دالة بلا معاملات وتقرأ/تكتب st.session_state):
     ui.sidebar.render_sidebar()      # تُستدعى داخل with st.sidebar
     ui.chat.render_chat()            # داخل تبويب المحادثة
+    ui.forecast.render_forecast()    # داخل تبويب التنبؤات
     ui.dashboard.render_dashboard()  # داخل تبويب لوحة المعلومات
+
+حماية اختيارية: ضع APP_PASSWORD في .env أو Streamlit Secrets لتفعيل
+شاشة كلمة المرور. إن لم تُحدَّد، يعمل التطبيق بدون قفل (للتطوير المحلي فقط).
 """
 from __future__ import annotations
 
+import hmac
 import importlib
 import io
 import sys
@@ -47,7 +52,7 @@ _force_utf8_std_streams()
 
 import streamlit as st
 
-from config import CONFIG, validate_config
+from config import CONFIG, get_setting, validate_config
 
 # يجب أن يكون أول أمر Streamlit في السكربت
 st.set_page_config(
@@ -58,7 +63,32 @@ st.set_page_config(
 )
 
 from ui import ensure_session, init_state  # noqa: E402
-from utils.i18n import SUPPORTED_LANGS, rtl_css, t  # noqa: E402
+from utils.i18n import SUPPORTED_LANGS, get_lang, rtl_css, t  # noqa: E402
+
+_FORECAST_TAB_LABELS = {"ar": "🔮 التنبؤات", "en": "🔮 Forecast"}
+
+
+def _check_password() -> bool:
+    """
+    بوابة كلمة مرور بسيطة. تعيد True إن كان الدخول مسموحاً.
+    معطّلة تلقائياً إن لم يُضبط APP_PASSWORD.
+    """
+    expected = get_setting("APP_PASSWORD", "")
+    if not expected:
+        return True
+    if st.session_state.get("authenticated"):
+        return True
+
+    st.title(f"{CONFIG.ui.page_icon} {CONFIG.ui.page_title}")
+    entered = st.text_input("كلمة المرور / Password", type="password", key="app_password_input")
+    if entered:
+        # مقارنة بزمن ثابت لتفادي هجمات التوقيت
+        if hmac.compare_digest(entered.encode("utf-8"), expected.encode("utf-8")):
+            st.session_state["authenticated"] = True
+            st.rerun()
+        else:
+            st.error("كلمة المرور غير صحيحة / Incorrect password")
+    return False
 
 
 def _render(
@@ -98,6 +128,9 @@ def _fallback_sidebar() -> None:
 def main() -> None:
     init_state()
 
+    if not _check_password():
+        st.stop()
+
     try:
         ensure_session()
     except Exception as exc:
@@ -119,9 +152,14 @@ def main() -> None:
         for err in errors:
             st.warning(err)
 
-    tab_chat, tab_dash = st.tabs([t("tab_chat"), t("tab_dashboard")])
+    forecast_label = _FORECAST_TAB_LABELS.get(get_lang(), _FORECAST_TAB_LABELS["en"])
+    tab_chat, tab_forecast, tab_dash = st.tabs(
+        [t("tab_chat"), forecast_label, t("tab_dashboard")]
+    )
     with tab_chat:
         _render("ui.chat", "render_chat")
+    with tab_forecast:
+        _render("ui.forecast", "render_forecast")
     with tab_dash:
         _render("ui.dashboard", "render_dashboard")
 
