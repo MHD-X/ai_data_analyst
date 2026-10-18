@@ -36,6 +36,11 @@ from pathlib import Path
 from typing import Any
 
 from config import CONFIG, DATA_DIR
+from utils.column_matcher import (
+    friendly_missing_column_message,
+    normalize_column_name,
+    resolve_column,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -206,6 +211,33 @@ class CodeExecutor:
                 f"المسموح: {', '.join(sorted(self.allowed_modules))}"
             )
 
+    @staticmethod
+    def _rewrite_dataframe_column_references(code: str, df: Any | None) -> str:
+        """Rewrites likely DataFrame column references to the actual columns in the file."""
+        if not code or df is None or getattr(df, "empty", True):
+            return code
+        result = code
+        patterns = (
+            r"(?P<prefix>\b(?:df|data|dataset|frame)\s*\[\s*\[\s*[\'\"])(?P<name>[^\'\"]+)(?P<suffix>[\'\"]\s*\]\s*\])",
+            r"(?P<prefix>\b(?:df|data|dataset|frame)\s*\[\s*[\'\"])(?P<name>[^\'\"]+)(?P<suffix>[\'\"]\s*\])",
+            r"(?P<prefix>\b(?:df|data|dataset|frame)\s*\.loc\s*\[\s*[:,\s]*[\'\"])(?P<name>[^\'\"]+)(?P<suffix>[\'\"]\s*\])",
+            r"(?P<prefix>\b(?:df|data|dataset|frame)\s*\.groupby\s*\(\s*[\'\"])(?P<name>[^\'\"]+)(?P<suffix>[\'\"]\s*\))",
+            r"(?P<prefix>\b(?:df|data|dataset|frame)\s*\.sort_values\s*\(\s*[\'\"])(?P<name>[^\'\"]+)(?P<suffix>[\'\"]\s*\))",
+            r"(?P<prefix>\b(?:df|data|dataset|frame)\s*\.drop\s*\(\s*columns\s*=\s*\[\s*[\'\"])(?P<name>[^\'\"]+)(?P<suffix>[\'\"]\s*\])",
+        )
+
+        for pattern in patterns:
+            def _replace(match: re.Match[str]) -> str:
+                raw_name = match.group("name")
+                resolved = resolve_column(df, raw_name, cutoff=0.55)
+                if resolved is None:
+                    return match.group(0)
+                return f"{match.group('prefix')}{resolved}{match.group('suffix')}"
+
+            result = re.sub(pattern, _replace, result)
+
+        return result
+
     # --------------------------------------------------------
     # بناء سكربت التنفيذ
     # --------------------------------------------------------
@@ -227,12 +259,12 @@ else:
 
         user_code_literal = repr(user_code)
 
-        # ملاحظة: نستخدم chr(10) لتمثيل \n داخل السطر الأول من الرأس
-        # لتجنب مشاكل الترميز في بعض إصدارات Python على Windows.
         script = f'''
 # ===== [إصلاح UnicodeEncodeError] إجبار stdout/stderr على UTF-8 =====
 import io as _io
+import re
 import sys as _sys
+
 
 def _force_utf8(stream):
     """يعيد تغليف stream بترميز UTF-8 لو لم يكن كذلك."""
@@ -265,19 +297,83 @@ import plotly.express as px
 import plotly.graph_objects as go
 import plotly.io as pio
 
+ROOT = {str(Path(__file__).resolve().parents[2])!r}
+if ROOT not in _sys.path:
+    _sys.path.insert(0, ROOT)
+
+from utils.column_matcher import resolve_column
+
+
+def _rewrite_dataframe_reference(code: str, frame):
+    if not code or frame is None or getattr(frame, "empty", True):
+        return code
+    result = code
+    patterns = (
+        r"(?P<prefix>\b(?:df|data|dataset|frame)\s*\[\s*\[\s*[\'\"])(?P<name>[^\'\"]+)(?P<suffix>[\'\"]\s*\]\s*\])",
+        r"(?P<prefix>\b(?:df|data|dataset|frame)\s*\[\s*[\'\"])(?P<name>[^\'\"]+)(?P<suffix>[\'\"]\s*\])",
+        r"(?P<prefix>\b(?:df|data|dataset|frame)\s*\.loc\s*\[\s*[:,\s]*[\'\"])(?P<name>[^\'\"]+)(?P<suffix>[\'\"]\s*\])",
+        r"(?P<prefix>\b(?:df|data|dataset|frame)\s*\.groupby\s*\(\s*[\'\"])(?P<name>[^\'\"]+)(?P<suffix>[\'\"]\s*\))",
+        r"(?P<prefix>\b(?:df|data|dataset|frame)\s*\.sort_values\s*\(\s*[\'\"])(?P<name>[^\'\"]+)(?P<suffix>[\'\"]\s*\))",
+        r"(?P<prefix>\b(?:df|data|dataset|frame)\s*\.drop\s*\(\s*columns\s*=\s*\[\s*[\'\"])(?P<name>[^\'\"]+)(?P<suffix>[\'\"]\s*\])",
+    )
+    for pattern in patterns:
+        def _replace(match):
+            raw_name = match.group("name")
+            resolved = resolve_column(frame, raw_name, cutoff=0.55)
+            if resolved is None:
+                return match.group(0)
+            return f"{match.group('prefix')}{resolved}{match.group('suffix')}"
+
+        result = re.sub(pattern, _replace, result)
+    return result
+
 # ===== تحميل البيانات =====
 {data_loading}
 
 # ===== كود المستخدم =====
 _user_code = {user_code_literal}
+if 'df' in globals() and globals()['df'] is not None:
+    _user_code = _rewrite_dataframe_reference(_user_code, globals()['df'])
+
 try:
     exec(compile(_user_code, "<user_code>", "exec"), globals())
+except KeyError as _e:
+    missing = None
+    try:
+        missing = re.search(r"['\"]([^'\"]+)['\"]", str(_e)).group(1)
+    except Exception:
+        missing = None
+
+    if 'df' in globals() and globals()['df'] is not None and missing:
+        _resolved = resolve_column(globals()['df'], missing, cutoff=0.55)
+        if _resolved:
+            _user_code = _rewrite_dataframe_reference(_user_code, globals()['df'])
+            try:
+                exec(compile(_user_code, "<user_code>", "exec"), globals())
+            except Exception as _retry_error:
+                _error_info = {
+                    "type": type(_retry_error).__name__,
+                    "message": str(_retry_error),
+                    "traceback": traceback.format_exc(),
+                }
+                print("__EXECUTION_ERROR__")
+                print(json.dumps(_error_info, default=str, ensure_ascii=False))
+                _sys.exit(0)
+    else:
+        _error_info = {
+            "type": type(_e).__name__,
+            "message": str(_e),
+            "traceback": traceback.format_exc(),
+        }
+        print("__EXECUTION_ERROR__")
+        print(json.dumps(_error_info, default=str, ensure_ascii=False))
+        _sys.exit(0)
 except Exception as _e:
-    _error_info = {{
+    _error_info = {
         "type": type(_e).__name__,
         "message": str(_e),
         "traceback": traceback.format_exc(),
-    }}
+    }
     print("__EXECUTION_ERROR__")
     print(json.dumps(_error_info, default=str, ensure_ascii=False))
     _sys.exit(0)
@@ -378,6 +474,19 @@ print(json.dumps(_result, default=str, ensure_ascii=False))
 
         # 2. بناء السكربت
         data_path_str = str(data_path) if data_path else None
+        if data_path is not None and Path(data_path).exists():
+            try:
+                import pandas as pd
+
+                if str(data_path).lower().endswith(".csv"):
+                    resolved_df = pd.read_csv(data_path)
+                elif str(data_path).lower().endswith((".xlsx", ".xls")):
+                    resolved_df = pd.read_excel(data_path)
+                else:
+                    resolved_df = None
+                code = self._rewrite_dataframe_column_references(code, resolved_df)
+            except Exception:
+                pass
         runner_script = self._build_runner_script(code, data_path_str)
 
         # 3. كتابة السكربت في ملف مؤقت

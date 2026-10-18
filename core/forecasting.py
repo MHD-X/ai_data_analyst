@@ -17,6 +17,8 @@ import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 
+from utils.column_matcher import friendly_missing_column_message, resolve_column
+
 logger = logging.getLogger(__name__)
 
 MIN_POINTS = 8          # أقل عدد نقاط لإجراء backtest ومقارنة النماذج
@@ -94,22 +96,35 @@ def build_series(
     value_col=None أو agg='count' => عدّ السجلات.
     dedupe_on: عمود معرّف (مثل Enrollment ID) لإزالة الصفوف المكررة قبل التجميع.
     """
-    cols = [c for c in (date_col, value_col, dedupe_on) if c is not None]
+    requested_cols = [date_col, value_col, dedupe_on]
+    resolved_date_col = resolve_column(df, date_col) if date_col is not None else None
+    if resolved_date_col is None:
+        raise ValueError(friendly_missing_column_message(date_col, df, lang="ar"))
+
+    resolved_value_col = resolve_column(df, value_col) if value_col is not None else None
+    if value_col is not None and resolved_value_col is None:
+        raise ValueError(friendly_missing_column_message(value_col, df, lang="ar"))
+
+    resolved_dedupe_on = resolve_column(df, dedupe_on) if dedupe_on is not None else None
+    if dedupe_on is not None and resolved_dedupe_on is None:
+        raise ValueError(friendly_missing_column_message(dedupe_on, df, lang="ar"))
+
+    cols = [c for c in (resolved_date_col, resolved_value_col, resolved_dedupe_on) if c is not None]
     work = df[list(dict.fromkeys(cols))].copy()
 
-    if dedupe_on is not None:
-        work = work.drop_duplicates(subset=[dedupe_on])
+    if resolved_dedupe_on is not None:
+        work = work.drop_duplicates(subset=[resolved_dedupe_on])
 
-    work["_ts"] = parse_dates(work[date_col])
+    work["_ts"] = parse_dates(work[resolved_date_col])
     work = work.dropna(subset=["_ts"])
     if work.empty:
         raise ValueError("لا توجد تواريخ صالحة في العمود المختار.")
 
-    if value_col is None or agg == "count":
+    if resolved_value_col is None or agg == "count":
         work["_v"] = 1.0
         agg = "sum"
     else:
-        work["_v"] = pd.to_numeric(work[value_col], errors="coerce")
+        work["_v"] = pd.to_numeric(work[resolved_value_col], errors="coerce")
         work = work.dropna(subset=["_v"])
         if work.empty:
             raise ValueError("العمود المختار لا يحتوي قيماً رقمية.")

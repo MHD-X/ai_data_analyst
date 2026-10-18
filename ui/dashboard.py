@@ -21,6 +21,7 @@ from core.memory import get_memory
 from core.narrative import build_facts, llm_narrative, template_narrative
 from ui.data_audit import render_audit_report
 from ui.report_export import render_report_export
+from utils.column_matcher import friendly_missing_column_message, resolve_column
 from utils.helpers import (
     format_timestamp,
     get_dataframe_summary,
@@ -222,12 +223,16 @@ def build_dashboard_analysis(
     date_candidates = detect_date_columns(df)
     if not date_candidates:
         raise ValueError("لم يُعثر على عمود تاريخ صالح في الملف.")
-    chosen_date = date_col or date_candidates[0]
+    chosen_date = resolve_column(df, date_col) if date_col is not None else date_candidates[0]
+    if chosen_date is None:
+        raise ValueError(friendly_missing_column_message(date_col, df, lang="ar"))
 
     numeric_cols = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
     if not numeric_cols:
         raise ValueError("لا يوجد عمود رقمي مناسب للتحليل.")
-    chosen_value = value_col or numeric_cols[0]
+    chosen_value = resolve_column(df, value_col) if value_col is not None else numeric_cols[0]
+    if chosen_value is None:
+        raise ValueError(friendly_missing_column_message(value_col, df, lang="ar"))
 
     series = build_series(
         df,
