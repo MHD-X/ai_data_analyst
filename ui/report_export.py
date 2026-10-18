@@ -14,6 +14,7 @@ import sys
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 from xml.sax.saxutils import escape
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -414,3 +415,81 @@ def build_pdf_report(b: ReportBundle) -> bytes:
 
     doc.build(el, onFirstPage=footer, onLaterPages=footer)
     return buf.getvalue()
+
+
+# ============================================================
+# Streamlit UI: تصدير سريع من لوحة التحكم
+# ============================================================
+def _report_bundle_from_state(bundle: dict[str, Any] | ReportBundle) -> ReportBundle:
+    """يحوّل القيم الموجودة في session_state إلى نسخة ReportBundle جاهزة للتصدير."""
+    if isinstance(bundle, ReportBundle):
+        return bundle
+
+    series = bundle.get("series")
+    result = bundle.get("result")
+    facts = bundle.get("facts")
+    if series is None or result is None or facts is None:
+        raise ValueError("لا توجد بيانات كافية لإنشاء تقرير التصدير.")
+
+    return ReportBundle(
+        metric=str(bundle.get("metric") or series.name or "dataset"),
+        series=series,
+        result=result,
+        facts=facts,
+        narrative=str(bundle.get("narrative") or ""),
+        narrative_source=str(bundle.get("narrative_source") or "template"),
+        anomalies=bundle.get("anomalies"),
+        audit=bundle.get("audit"),
+        generated_at=datetime.now().strftime("%Y-%m-%d %H:%M"),
+    )
+
+
+def render_report_downloads(bundle: dict[str, Any] | ReportBundle | None) -> None:
+    """يعرض أزرار التصدير في الواجهة مع التحقق من التبعيات."""
+    if bundle is None:
+        return
+
+    try:
+        report = _report_bundle_from_state(bundle)
+    except Exception as exc:
+        st = __import__("streamlit")
+        st.warning(f"تعذّر تجهيز تقرير التصدير: {exc}")
+        return
+
+    import streamlit as st
+
+    st.markdown("### ⬇️ تصدير التقرير")
+    col1, col2, col3 = st.columns(3)
+
+    try:
+        excel_bytes = build_excel_report(report)
+        col1.download_button(
+            "📘 Excel",
+            data=excel_bytes,
+            file_name=f"forecast_report_{datetime.now():%Y%m%d_%H%M%S}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True,
+        )
+    except Exception as exc:
+        col1.warning(f"Excel غير متاح: {exc}")
+
+    try:
+        pdf_bytes = build_pdf_report(report)
+        col2.download_button(
+            "📄 PDF",
+            data=pdf_bytes,
+            file_name=f"forecast_report_{datetime.now():%Y%m%d_%H%M%S}.pdf",
+            mime="application/pdf",
+            use_container_width=True,
+        )
+    except Exception as exc:
+        col2.warning(f"PDF غير متاح: {exc}")
+
+    forecast_csv = report.result.forecast.reset_index().rename(columns={"index": "التاريخ"}).to_csv(index=False, encoding="utf-8-sig")
+    col3.download_button(
+        "📊 CSV",
+        data=forecast_csv,
+        file_name=f"forecast_data_{datetime.now():%Y%m%d_%H%M%S}.csv",
+        mime="text/csv",
+        use_container_width=True,
+    )

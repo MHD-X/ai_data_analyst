@@ -14,9 +14,13 @@ from typing import Any
 import pandas as pd
 import streamlit as st
 
+from core.anomaly import detect_anomalies
 from core.data_audit import AuditConfig, audit_dataframe
+from core.forecasting import build_series, detect_date_columns, forecast_series, make_figure
 from core.memory import get_memory
+from core.narrative import build_facts, llm_narrative, template_narrative
 from ui.data_audit import render_audit_report
+from ui.report_export import render_report_downloads
 from utils.helpers import (
     format_timestamp,
     get_dataframe_summary,
@@ -199,10 +203,145 @@ def _render_top_requests() -> None:
 
 
 # ============================================================
+# تحليل البيانات والنتائج التنفيذية
+# ============================================================
+def build_dashboard_analysis(
+    df: pd.DataFrame,
+    *,
+    date_col: str | None = None,
+    value_col: str | None = None,
+    agg: str = "sum",
+    freq: str = "W",
+    horizon: int = 4,
+    threshold: float = 3.5,
+) -> dict[str, Any]:
+    """يُنشئ مجموعة كاملة من النتائج التنفيذية للوحة التحكم دون تعديل البيانات الأصلية."""
+    if df is None or df.empty:
+        raise ValueError("لا توجد بيانات لتحليلها.")
+
+    date_candidates = detect_date_columns(df)
+    if not date_candidates:
+        raise ValueError("لم يُعثر على عمود تاريخ صالح في الملف.")
+    chosen_date = date_col or date_candidates[0]
+
+    numeric_cols = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
+    if not numeric_cols:
+        raise ValueError("لا يوجد عمود رقمي مناسب للتحليل.")
+    chosen_value = value_col or numeric_cols[0]
+
+    series = build_series(
+        df,
+        date_col=chosen_date,
+        value_col=None if chosen_value == "count" else chosen_value,
+        agg=agg,
+        freq=freq,
+        dedupe_on=None,
+    )
+    result = forecast_series(series, horizon=horizon, freq=freq)
+    anomalies = detect_anomalies(series, threshold=threshold)
+    facts = build_facts(series, result, anomalies=anomalies, agg=agg)
+
+    try:
+        narrative, source = llm_narrative(facts)
+    except Exception:
+        narrative, source = template_narrative(facts), "template"
+
+    audit = audit_dataframe(df, AuditConfig())
+    return {
+        "date_col": chosen_date,
+        "value_col": chosen_value,
+        "agg": agg,
+        "freq": freq,
+        "horizon": horizon,
+        "threshold": threshold,
+        "series": series,
+        "result": result,
+        "anomalies": anomalies,
+        "facts": facts,
+        "narrative": narrative,
+        "narrative_source": source,
+        "audit": audit,
+        "metric": str(series.name),
+    }
+
+
+def _render_analysis_panel(bundle: dict[str, Any]) -> None:
+    """يعرض النتائج التنفيذية (الملخص، الرسم، الشواذ، التصدير)."""
+    result = bundle["result"]
+    anomalies = bundle["anomalies"]
+    narrative = bundle["narrative"]
+
+    st.markdown("### 🔮 التنبؤ والملخص التنفيذي")
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("النموذج", result.model_name)
+    c2.metric("متوسط التنبؤ", f"{float(result.forecast['yhat'].mean()):,.2f}")
+    c3.metric("آخر قيمة", f"{float(bundle['series'].iloc[-1]):,.2f}")
+    c4.metric("الشواذ", anomalies.count if anomalies is not None else 0)
+
+    st.plotly_chart(make_figure(result), use_container_width=True)
+
+    with st.expander("📌 الملخص التنفيذي بالعربية", expanded=True):
+        st.markdown(narrative)
+
+    if anomalies is not None and anomalies.count:
+        with st.expander("⚠️ القيم الشاذة", expanded=False):
+            display = anomalies.table.reset_index().rename(columns={
+                "index": "التاريخ",
+                "value": "القيمة",
+                "expected": "المتوقعة",
+                "score": "درجة الشذوذ",
+                "direction": "الاتجاه",
+            })
+            st.dataframe(display, use_container_width=True, hide_index=True)
+    else:
+        st.caption("لم تُرصد قيم شاذة في السلسلة التاريخية.")
+
+    render_report_downloads(bundle)
+
+
+# ============================================================
 # نقطة الدخول
 # ============================================================
 def render_dashboard(*args: Any, **kwargs: Any) -> None:
     """يرسم لوحة التحكم كاملة مع التنسيق والتصميم الاحترافي."""
+    df = st.session_state.get("df")
+    if df is None or not st.session_state.get("df_loaded"):
+        st.info(t("no_file"))
+        return
+
+    st.markdown("### 📊 تحليل البيانات التلقائي")
+    with st.container():
+        date_options = detect_date_columns(df)
+        metric_options = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
+        if not date_options or not metric_options:
+            st.warning("الملف الحالي لا يحتوي على عمود تاريخ صالح أو عمود رقمي مناسب للتحليل.")
+            return
+
+        c1, c2, c3, c4 = st.columns(4)
+        date_col = c1.selectbox("عمود التاريخ", date_options, index=0)
+        value_col = c2.selectbox("المقياس", metric_options, index=0)
+        freq = c3.selectbox("التجميع", ["D", "W", "ME"], format_func={"D": "يومي", "W": "أسبوعي", "ME": "شهري"}.get, index=1)
+        horizon = c4.slider("فترة التنبؤ", min_value=1, max_value=12, value=4)
+
+        if st.button("🚀 إنشاء التحليل", type="primary", use_container_width=True):
+            try:
+                bundle = build_dashboard_analysis(
+                    df,
+                    date_col=date_col,
+                    value_col=value_col,
+                    agg="sum",
+                    freq=freq,
+                    horizon=horizon,
+                )
+                st.session_state["analysis_bundle"] = bundle
+            except Exception as exc:
+                st.error(f"تعذّر إنشاء التحليل: {exc}")
+                return
+
+    bundle = st.session_state.get("analysis_bundle")
+    if bundle is not None:
+        _render_analysis_panel(bundle)
+
     _render_current_file()
     st.divider()
     _render_statistics()
