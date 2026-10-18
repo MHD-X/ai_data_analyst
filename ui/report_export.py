@@ -469,6 +469,7 @@ def render_report_downloads(bundle: dict[str, Any] | ReportBundle | None) -> Non
             file_name=f"forecast_report_{datetime.now():%Y%m%d_%H%M%S}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True,
+            key="btn_download_excel_report",
         )
     except Exception as exc:
         col1.warning(f"Excel غير متاح: {exc}")
@@ -481,6 +482,7 @@ def render_report_downloads(bundle: dict[str, Any] | ReportBundle | None) -> Non
             file_name=f"forecast_report_{datetime.now():%Y%m%d_%H%M%S}.pdf",
             mime="application/pdf",
             use_container_width=True,
+            key="btn_download_pdf_report",
         )
     except Exception as exc:
         col2.warning(f"PDF غير متاح: {exc}")
@@ -492,4 +494,12 @@ def render_report_downloads(bundle: dict[str, Any] | ReportBundle | None) -> Non
         file_name=f"forecast_data_{datetime.now():%Y%m%d_%H%M%S}.csv",
         mime="text/csv",
         use_container_width=True,
+        key="btn_download_csv_report",
     )
+
+
+def render_report_export(bundle: dict[str, Any] | ReportBundle | None) -> None:
+    """واجهة تصدير التقرير المعروضة صراحةً داخل dashboard أو أي صفحة أخرى."""
+    if bundle is None:
+        return
+    render_report_downloads(bundle)

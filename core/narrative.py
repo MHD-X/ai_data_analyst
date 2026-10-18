@@ -249,7 +249,11 @@ _LLM_SYSTEM = (
 def llm_narrative(f: ForecastFacts) -> tuple[str, str]:
     """يعيد (النص، المصدر) حيث المصدر 'llm' أو 'template' عند الرجوع للقالب."""
     try:
+        from config import CONFIG
         from core.llm_client import get_client
+
+        if not CONFIG.llm.api_key or not str(CONFIG.llm.base_url).startswith("http"):
+            raise ValueError("LLM API key or base URL is not configured")
 
         facts = asdict(f)
         facts["model"] = MODEL_AR.get(f.model, f.model)

@@ -20,7 +20,7 @@ from core.forecasting import build_series, detect_date_columns, forecast_series,
 from core.memory import get_memory
 from core.narrative import build_facts, llm_narrative, template_narrative
 from ui.data_audit import render_audit_report
-from ui.report_export import render_report_downloads
+from ui.report_export import render_report_export
 from utils.helpers import (
     format_timestamp,
     get_dataframe_summary,
@@ -296,7 +296,7 @@ def _render_analysis_panel(bundle: dict[str, Any]) -> None:
     else:
         st.caption("لم تُرصد قيم شاذة في السلسلة التاريخية.")
 
-    render_report_downloads(bundle)
+    render_report_export(bundle)
 
 
 # ============================================================
@@ -318,12 +318,18 @@ def render_dashboard(*args: Any, **kwargs: Any) -> None:
             return
 
         c1, c2, c3, c4 = st.columns(4)
-        date_col = c1.selectbox("عمود التاريخ", date_options, index=0)
-        value_col = c2.selectbox("المقياس", metric_options, index=0)
-        freq = c3.selectbox("التجميع", ["D", "W", "ME"], format_func={"D": "يومي", "W": "أسبوعي", "ME": "شهري"}.get, index=1)
-        horizon = c4.slider("فترة التنبؤ", min_value=1, max_value=12, value=4)
+        date_col = c1.selectbox("عمود التاريخ", date_options, index=0, key="dash_select_date_col")
+        value_col = c2.selectbox("المقياس", metric_options, index=0, key="dash_select_value_col")
+        freq = c3.selectbox(
+            "التجميع",
+            ["D", "W", "ME"],
+            format_func={"D": "يومي", "W": "أسبوعي", "ME": "شهري"}.get,
+            index=1,
+            key="dash_select_freq",
+        )
+        horizon = c4.slider("فترة التنبؤ", min_value=1, max_value=12, value=4, key="dash_slider_horizon")
 
-        if st.button("🚀 إنشاء التحليل", type="primary", use_container_width=True):
+        if st.button("🚀 إنشاء التحليل", type="primary", use_container_width=True, key="dash_btn_run_analysis"):
             try:
                 bundle = build_dashboard_analysis(
                     df,

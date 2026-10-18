@@ -54,7 +54,9 @@ def render_audit_report(report: AuditReport) -> None:
             st.download_button(
                 "⬇️ تنزيل الصفوف المعزولة (CSV)",
                 neutralize_formulas(report.quarantine).to_csv(index=False).encode("utf-8-sig"),
-                file_name="quarantine.csv", mime="text/csv", key="dl_quarantine",
+                file_name="quarantine.csv",
+                mime="text/csv",
+                key="btn_download_quarantine_csv",
             )
 
     with tab_w:

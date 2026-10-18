@@ -370,13 +370,13 @@ def _render_assistant(msg: dict[str, Any], idx: int) -> None:
             col_up, col_down, _ = st.columns([1, 1, 4])
             col_up.button(
                 t("helpful"),
-                key=f"up_{idx}",
+                key=f"rate_up_{op_id}_{idx}",
                 on_click=_on_rate,
                 args=(idx, op_id, 5),
             )
             col_down.button(
                 t("not_helpful"),
-                key=f"down_{idx}",
+                key=f"rate_down_{op_id}_{idx}",
                 on_click=_on_rate,
                 args=(idx, op_id, 1),
             )
@@ -446,6 +446,6 @@ def render_chat() -> None:
         _render_message(msg, idx)
 
     # صندوق الإدخال
-    prompt = st.chat_input(t("ask_placeholder"))
+    prompt = st.chat_input(t("ask_placeholder"), key="chat_input_main")
     if prompt:
         _handle_prompt(prompt)
