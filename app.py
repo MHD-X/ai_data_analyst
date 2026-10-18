@@ -1,15 +1,5 @@
 """
-app.py — نقطة الدخول (Streamlit)
-تشغيل:  streamlit run app.py
-
-العقد مع مكوّنات الواجهة (كل دالة بلا معاملات وتقرأ/تكتب st.session_state):
-    ui.sidebar.render_sidebar()      # تُستدعى داخل with st.sidebar
-    ui.chat.render_chat()            # داخل تبويب المحادثة
-    ui.forecast.render_forecast()    # داخل تبويب التنبؤات
-    ui.dashboard.render_dashboard()  # داخل تبويب لوحة المعلومات
-
-حماية اختيارية: ضع APP_PASSWORD في .env أو Streamlit Secrets لتفعيل
-شاشة كلمة المرور. إن لم تُحدَّد، يعمل التطبيق بدون قفل (للتطوير المحلي فقط).
+app.py — نقطة الدخول الرئيسية لـ Streamlit
 """
 from __future__ import annotations
 
@@ -24,12 +14,7 @@ ROOT = Path(__file__).resolve().parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-# ============================================================
-# [إصلاح UnicodeEncodeError] إجبار stdout/stderr على UTF-8
-# يجب أن يكون قبل أي استيراد آخر — خاصة streamlit.
-# ============================================================
 def _force_utf8_std_streams() -> None:
-    """يضمن أن stdout/stderr يستخدمان UTF-8 (مهم على Windows بالعربية)."""
     for name in ("stdout", "stderr"):
         stream = getattr(sys, name, None)
         if stream is None:
@@ -51,15 +36,12 @@ def _force_utf8_std_streams() -> None:
         except Exception:
             pass
 
-
 _force_utf8_std_streams()
-# ============================================================
 
 import streamlit as st
-
 from config import CONFIG, get_setting, validate_config
 
-# يجب أن يكون أول أمر Streamlit في السكربت
+# 1. أمر إعداد الصفحة يجب أن يكون الأول مطلقاً
 st.set_page_config(
     page_title=CONFIG.ui.page_title,
     page_icon=CONFIG.ui.page_icon,
@@ -72,12 +54,25 @@ from utils.i18n import SUPPORTED_LANGS, get_lang, rtl_css, t  # noqa: E402
 
 _FORECAST_TAB_LABELS = {"ar": "🔮 التنبؤات", "en": "🔮 Forecast"}
 
+# تنسيق CSS احترافي يضمن سلاسة الطي وعدم ظهور أي خطوط مزعجة
+CUSTOM_CSS = """
+<style>
+    /* إخفاء الحدود العلوية والخطوط المزعجة عند طي الشريط الجانبي */
+    [data-testid="stSidebar"] {
+        border-right: none !important;
+        border-left: none !important;
+    }
+    .stApp > header {
+        background-color: transparent !important;
+    }
+    /* تحسين طريقة عرض الجداول والكروت */
+    div[data-testid="stMetricValue"] {
+        font-size: 1.8rem !important;
+    }
+</style>
+"""
 
 def _check_password() -> bool:
-    """
-    بوابة كلمة مرور بسيطة. تعيد True إن كان الدخول مسموحاً.
-    معطّلة تلقائياً إن لم يُضبط APP_PASSWORD.
-    """
     expected = get_setting("APP_PASSWORD", "")
     if not expected:
         return True
@@ -87,7 +82,6 @@ def _check_password() -> bool:
     st.title(f"{CONFIG.ui.page_icon} {CONFIG.ui.page_title}")
     entered = st.text_input("كلمة المرور / Password", type="password", key="app_password_input")
     if entered:
-        # مقارنة بزمن ثابت لتفادي هجمات التوقيت
         if hmac.compare_digest(entered.encode("utf-8"), expected.encode("utf-8")):
             st.session_state["authenticated"] = True
             st.rerun()
@@ -101,7 +95,6 @@ def _render(
     func_name: str,
     fallback: Callable[[], None] | None = None,
 ) -> None:
-    """يحمّل وحدة واجهة ويستدعي دالتها، ويعرض رسالة واضحة بدل انهيار التطبيق."""
     try:
         module = importlib.import_module(module_name)
     except Exception as exc:
@@ -120,7 +113,6 @@ def _render(
 
 
 def _fallback_sidebar() -> None:
-    """شريط جانبي مؤقت (اختيار اللغة فقط) حتى يكتمل ui/sidebar.py."""
     st.selectbox(
         t("language"),
         options=list(SUPPORTED_LANGS),
@@ -144,6 +136,7 @@ def main() -> None:
         st.stop()
 
     st.markdown(rtl_css(), unsafe_allow_html=True)
+    st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 
     with st.sidebar:
         st.header(t("sidebar_title"))

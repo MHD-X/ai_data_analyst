@@ -1,13 +1,11 @@
 """
-ui/dashboard.py — لوحة التحكم الرئيسية
+ui/dashboard.py — لوحة التحكم الرئيسية المتقدمة
 
 تعرض:
-    1. ملخص الملف الحالي (صفوف/أعمدة/أنواع)
-    2. معاينة البيانات
-    3. إحصائيات المشروع (عمليات، نجاح، ملفات)
-    4. آخر العمليات
-    5. أكثر الطلبات تكراراً
-    6. الأنواع الرسومية الموصى بها
+    1. تقرير تدقيق البيانات والحجر الصحي (Data Audit & Quarantine)
+    2. ملخص الملف الحالي ومعاينته
+    3. إحصائيات المشروع والعمليات
+    4. أكثر الطلبات تكراراً
 """
 from __future__ import annotations
 
@@ -16,7 +14,9 @@ from typing import Any
 import pandas as pd
 import streamlit as st
 
+from core.data_audit import AuditConfig, audit_dataframe
 from core.memory import get_memory
+from ui.data_audit import render_audit_report
 from utils.helpers import (
     format_timestamp,
     get_dataframe_summary,
@@ -26,10 +26,10 @@ from utils.i18n import t
 
 
 # ============================================================
-# القسم 1: ملخص الملف الحالي
+# القسم 1: فحص البيانات وملخص الملف الحالي
 # ============================================================
 def _render_current_file() -> None:
-    """يعرض ملخصاً للملف الحالي إن وُجد."""
+    """يعرض تقرير التدقيق والحجر الصحي وملخص الملف الحالي."""
     df: pd.DataFrame | None = st.session_state.get("df")
     if df is None:
         st.info(t("no_file"))
@@ -43,25 +43,37 @@ def _render_current_file() -> None:
     cols = summary.get("columns", 0)
     mem_mb = summary.get("memory_usage_mb", 0.0)
 
-    # مقاييس في 3 أعمدة
+    # 1. قسم الحجر الصحي والتأكد من جودة البيانات أولاً
+    st.markdown("#### 🛡️ تقرير جودة البيانات والحجر الصحي (Data Audit & Quarantine)")
+    try:
+        cfg = AuditConfig()
+        report = audit_dataframe(df, cfg)
+        render_audit_report(report)
+    except Exception as exc:
+        st.caption(f"ℹ️ تعذّر تشغيل تقرير التدقيق التلقائي (يُظهر معاينة مباشرة): {exc}")
+
+    st.divider()
+
+    # 2. ملخص الهيكل والمعاينة الفنية
+    st.markdown("#### 📊 النظرة العامة والتركيب")
     c1, c2, c3 = st.columns(3)
     c1.metric(t("rows_label"), f"{rows:,}")
     c2.metric(t("cols_label"), f"{cols:,}")
     c3.metric("💾 RAM", f"{mem_mb:.2f} MB")
 
-    # معاينة في expander
+    # معاينة البيانات
     with st.expander(t("preview"), expanded=False):
         st.dataframe(df.head(20), use_container_width=True)
 
-    # أنواع الأعمدة
-    with st.expander(t("columns")):
+    # أنواع الأعمدة والقيم المفقودة
+    with st.expander(t("columns"), expanded=False):
         dtypes = summary.get("dtypes", {})
         null_counts = summary.get("null_counts", {})
         cols_data = []
         for col_name, dtype in dtypes.items():
             cols_data.append({
                 t("columns"): col_name,
-                "Type": dtype,
+                "Type": str(dtype),
                 "Nulls": null_counts.get(col_name, 0),
             })
         if cols_data:
@@ -76,7 +88,7 @@ def _render_current_file() -> None:
 # القسم 2: إحصائيات المشروع
 # ============================================================
 def _render_statistics() -> None:
-    """يعرض إحصائيات قاعدة البيانات."""
+    """يعرض إحصائيات قاعدة البيانات والعمليات."""
     st.markdown(f"### {t('dash_title')}")
 
     try:
@@ -85,7 +97,6 @@ def _render_statistics() -> None:
         st.warning(f"⚠️ تعذّر تحميل الإحصائيات: {exc}")
         return
 
-    # 4 مقاييس رئيسية
     c1, c2, c3, c4 = st.columns(4)
     c1.metric(t("total_operations"), stats.get("total_operations", 0))
     c2.metric(
@@ -95,8 +106,7 @@ def _render_statistics() -> None:
     c3.metric(t("total_datasets"), stats.get("total_datasets", 0))
     c4.metric(t("total_sessions"), stats.get("total_sessions", 0))
 
-    # مقاييس ثانوية
-    with st.expander("📊 " + t("results")):
+    with st.expander("📊 " + t("results"), expanded=False):
         col_a, col_b, col_c = st.columns(3)
         col_a.metric(
             "✅ " + t("success"),
@@ -138,7 +148,6 @@ def _render_recent_operations() -> None:
         st.caption(t("no_operations"))
         return
 
-    # نبني جدول
     rows_data = []
     for op in ops:
         rows_data.append({
@@ -193,24 +202,11 @@ def _render_top_requests() -> None:
 # نقطة الدخول
 # ============================================================
 def render_dashboard(*args: Any, **kwargs: Any) -> None:
-    """
-    يرسم لوحة التحكم كاملة.
-    يُستدعى من app.py داخل `with tab_dash:`.
-    """
-    # ملخص الملف الحالي
+    """يرسم لوحة التحكم كاملة مع التنسيق والتصميم الاحترافي."""
     _render_current_file()
-
     st.divider()
-
-    # إحصائيات المشروع
     _render_statistics()
-
     st.divider()
-
-    # آخر العمليات
     _render_recent_operations()
-
     st.divider()
-
-    # أكثر الطلبات
     _render_top_requests()
