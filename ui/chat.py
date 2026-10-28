@@ -37,8 +37,8 @@ from core.llm_client import (
 )
 from core.memory import get_memory
 from core.prompts import (
+    build_auto_prompt,
     parse_llm_response,
-    prepare_prompt,
     validate_generated_code,
 )
 from utils.helpers import humanize_duration, truncate_text
@@ -129,9 +129,9 @@ def _run_pipeline(user_request: str, status: Any) -> dict[str, Any]:
     except Exception:
         examples = []
 
-    system_prompt, user_prompt, _task = prepare_prompt(
+    system_prompt, user_prompt, _task = build_auto_prompt(
+        ss.get("df"),
         user_request,
-        df=ss.get("df"),
         few_shot_examples=examples,
     )
 

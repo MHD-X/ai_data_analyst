@@ -323,14 +323,11 @@ class MemoryStore:
         cols: int,
         columns_info: dict[str, Any] | None = None,
         session_id: int | None = None,
+        file_hash: str | None = None,
     ) -> int:
-        """
-        يحفظ بيانات ملف مرفوع.
-        يحسب hash تلقائياً من الملف.
-        يعيد dataset_id.
-        """
+        """يخزّن ملفاً مرفوعاً، مع دعم hash يدوي عند الحاجة."""
         file_path = Path(file_path)
-        file_hash = hash_file(file_path)
+        file_hash = file_hash or hash_file(file_path)
         now = now_iso()
         info_json = safe_json_dumps(columns_info or {})
 
@@ -445,16 +442,16 @@ class MemoryStore:
         return [
             Dataset(
                 id=r["id"],
-                session_id=r.get("session_id"),
+                session_id=r["session_id"],
                 filename=r["filename"],
                 file_hash=r["file_hash"],
-                file_path=r.get("file_path") or "",
-                rows=r.get("rows") or 0,
-                cols=r.get("cols") or 0,
-                columns_info=safe_json_loads(r.get("columns_info"), default={}),
+                file_path=r["file_path"] or "",
+                rows=r["rows"] or 0,
+                cols=r["cols"] or 0,
+                columns_info=safe_json_loads(r["columns_info"], default={}),
                 created_at=r["created_at"],
             )
-            for r in rows
+            for r in [dict(r) for r in rows]
         ]
 
     def delete_dataset(self, dataset_id: int) -> bool:
@@ -656,10 +653,10 @@ class MemoryStore:
                 id=r["id"],
                 operation_id=r["operation_id"],
                 rating=r["rating"],
-                comment=r.get("comment") or "",
+                comment=r["comment"] or "",
                 created_at=r["created_at"],
             )
-            for r in rows
+            for r in [dict(r) for r in rows]
         ]
 
     def get_average_rating(self, operation_id: int) -> float | None:

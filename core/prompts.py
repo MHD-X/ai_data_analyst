@@ -18,6 +18,7 @@ from typing import Any
 import pandas as pd
 
 from config import CONFIG
+from core.security import mask_df_for_llm
 from utils.helpers import (
     clean_code_block,
     describe_dataframe,
@@ -87,11 +88,11 @@ SYSTEM_PROMPT_BASE = """You are an expert Data Analyst AI assistant integrated i
 - Python 3.11
 - Available libraries: pandas, numpy, plotly (express + graph_objects), scikit-learn, statsmodels, scipy
 - A DataFrame named `df` is **already loaded** with the user's data.
-- The sandbox has NO internet access and NO file system access.
+- The sandbox can read the in-memory dataframe and a temporary CSV copy if needed, but it must not access the network or the host filesystem outside the allowed working directory.
 
 ## Code Rules (STRICT)
 1. **Always use the pre-loaded `df` variable** — do NOT try to read files.
-2. **Never use**: `os`, `sys`, `subprocess`, `open()`, `requests`, `eval`, `exec`, `__import__`.
+2. **Never use**: `os`, `sys`, `subprocess`, `open()` for writing, `requests`, `eval`, `exec`, `__import__`.
 3. **Only import** from the allowed libraries listed above.
 4. **Print results** using `print()` — they will be captured.
 5. **For visualizations**, use `plotly.express` (as `px`) or `plotly.graph_objects` (as `go`).
@@ -103,6 +104,8 @@ Return your response in this EXACT format:
 
 ```python
 # Your Python code here
+```
+
 Explanation:
 A brief explanation (2-4 sentences) of what the code does.
 
@@ -248,6 +251,7 @@ def build_dataframe_context(
     if df is None or df.empty:
         return "⚠️ لا توجد بيانات محمّلة (df فارغ)"
 
+    masked_df = mask_df_for_llm(df)
     lines: list[str] = []
 
     # ============ الحجم ============
@@ -260,11 +264,11 @@ def build_dataframe_context(
 
     # ============ الأعمدة ============
     lines.append("## Columns")
-    for i, col in enumerate(df.columns[:max_columns], 1):
-        dtype = str(df[col].dtype)
-        nulls = int(df[col].isnull().sum())
-        null_pct = (nulls / len(df) * 100) if len(df) > 0 else 0.0
-        unique = df[col].nunique()
+    for i, col in enumerate(masked_df.columns[:max_columns], 1):
+        dtype = str(masked_df[col].dtype)
+        nulls = int(masked_df[col].isnull().sum())
+        null_pct = (nulls / len(masked_df) * 100) if len(masked_df) > 0 else 0.0
+        unique = masked_df[col].nunique()
 
         info = f"{i}. `{col}` — type: `{dtype}`"
         info += f" | nulls: {nulls} ({null_pct:.1f}%)"
@@ -273,7 +277,7 @@ def build_dataframe_context(
         # إضافة أمثلة للقيم النصية
         if dtype == "object" and unique <= 10:
             try:
-                samples = df[col].dropna().unique()[:5].tolist()
+                samples = masked_df[col].dropna().unique()[:5].tolist()
                 samples_str = ", ".join(str(s)[:30] for s in samples)
                 info += f" | samples: [{samples_str}]"
             except Exception:
@@ -289,7 +293,7 @@ def build_dataframe_context(
     # ============ العينة ============
     lines.append(f"## Sample Data (first {sample_rows} rows)")
     try:
-        sample_str = df.head(sample_rows).to_string(max_colwidth=25)
+        sample_str = masked_df.head(sample_rows).to_string(max_colwidth=25)
         lines.append("```")
         lines.append(sample_str)
         lines.append("```")
@@ -299,11 +303,11 @@ def build_dataframe_context(
 
     # ============ الإحصائيات ============
     if include_stats:
-        numeric_cols = df.select_dtypes(include=["number"]).columns
+        numeric_cols = masked_df.select_dtypes(include=["number"]).columns
         if len(numeric_cols) > 0:
             lines.append("## Numeric Statistics")
             try:
-                stats = df[numeric_cols].describe().round(2)
+                stats = masked_df[numeric_cols].describe().round(2)
                 lines.append("```")
                 lines.append(stats.to_string())
                 lines.append("```")
@@ -312,7 +316,7 @@ def build_dataframe_context(
             lines.append("")
 
         # قيم مفقودة
-        missing = df.isnull().sum()
+        missing = masked_df.isnull().sum()
         missing = missing[missing > 0].sort_values(ascending=False)
         if len(missing) > 0:
             lines.append("## Missing Values")
@@ -658,7 +662,7 @@ def prepare_prompt(
     Returns:
         (system_prompt, user_prompt, detected_task)
     """
-        # كشف تلقائي
+    # كشف تلقائي
     if task_type is None:
         task_type = detect_task_type(user_request)
     if language is None:
@@ -690,6 +694,7 @@ def build_clean_prompt(
     df: pd.DataFrame,
     user_request: str = "",
     language: str | None = None,
+    few_shot_examples: list[dict[str, str]] | None = None,
 ) -> tuple[str, str, str]:
     request = user_request or "نظف البيانات وأصلح المشاكل"
     if language is None:
@@ -716,6 +721,7 @@ def build_clean_prompt(
         task_type=TASK_CLEAN,
         language=language,
         dataframe_info=build_dataframe_context(df),
+        few_shot_examples=few_shot_examples or [],
         extra_instructions=extra,
         max_code_lines=120,
     )
@@ -731,6 +737,7 @@ def build_predict_prompt(
     date_column: str | None = None,
     periods_ahead: int = 10,
     language: str | None = None,
+    few_shot_examples: list[dict[str, str]] | None = None,
 ) -> tuple[str, str, str]:
     request = user_request or "تنبأ بالقيم المستقبلية"
     if language is None:
@@ -761,6 +768,7 @@ def build_predict_prompt(
         task_type=TASK_PREDICT,
         language=language,
         dataframe_info=build_dataframe_context(df),
+        few_shot_examples=few_shot_examples or [],
         extra_instructions=extra,
         max_code_lines=150,
     )
@@ -774,6 +782,7 @@ def build_visualize_prompt(
     user_request: str = "",
     chart_type: str | None = None,
     language: str | None = None,
+    few_shot_examples: list[dict[str, str]] | None = None,
 ) -> tuple[str, str, str]:
     request = user_request or "ارسم مخططاً مناسباً للبيانات"
     if language is None:
@@ -809,6 +818,7 @@ def build_visualize_prompt(
         task_type=TASK_VISUALIZE,
         language=language,
         dataframe_info=build_dataframe_context(df, include_stats=False),
+        few_shot_examples=few_shot_examples or [],
         extra_instructions=extra,
         max_code_lines=100,
     )
@@ -822,6 +832,7 @@ def build_report_prompt(
     user_request: str = "",
     business_context: str = "",
     language: str | None = None,
+    few_shot_examples: list[dict[str, str]] | None = None,
 ) -> tuple[str, str, str]:
     request = user_request or "أعطني تقريراً استراتيجياً شاملاً"
     if language is None:
@@ -852,6 +863,7 @@ def build_report_prompt(
         task_type=TASK_REPORT,
         language=language,
         dataframe_info=build_dataframe_context(df),
+        few_shot_examples=few_shot_examples or [],
         extra_instructions=extra,
         max_code_lines=150,
     )
@@ -859,7 +871,8 @@ def build_report_prompt(
     system, user = build_full_prompt(context)
     return system, user, TASK_REPORT
 
-# if __name__ == "__main__":
+
+if __name__ == "__main__":
     import pandas as pd
 
     logging.basicConfig(
@@ -957,16 +970,16 @@ def build_auto_prompt(
         )
 
     if task == TASK_CLEAN:
-        return build_clean_prompt(df, user_request, language)
+        return build_clean_prompt(df, user_request, language, few_shot_examples=few_shot_examples)
 
     if task == TASK_PREDICT:
-        return build_predict_prompt(df, user_request, language=language)
+        return build_predict_prompt(df, user_request, language=language, few_shot_examples=few_shot_examples)
 
     if task == TASK_VISUALIZE:
-        return build_visualize_prompt(df, user_request, language=language)
+        return build_visualize_prompt(df, user_request, language=language, few_shot_examples=few_shot_examples)
 
     if task == TASK_REPORT:
-        return build_report_prompt(df, user_request, language=language)
+        return build_report_prompt(df, user_request, language=language, few_shot_examples=few_shot_examples)
 
     return prepare_prompt(
         user_request=user_request,

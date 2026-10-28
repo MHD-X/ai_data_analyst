@@ -1,14 +1,4 @@
-"""
-ui/__init__.py — تهيئة الحالة المشتركة ومكوّنات الواجهة.
-
-يُستورد من app.py:
-    from ui import ensure_session, init_state
-
-ويصدّر المكوّنات الرئيسية للاستخدام الخارجي.
-
-ملاحظة: دوال إدارة الـ DataFrame موجودة هنا أيضاً لاستخدامها من أي وحدة
-واجهة (sidebar, chat, dashboard) دون تكرار الكود.
-"""
+﻿"""Canonical UI state and shared session helpers for the app."""
 from __future__ import annotations
 
 import sys
@@ -27,36 +17,27 @@ from core.memory import get_memory
 from utils.helpers import now_iso
 
 
-# ============================================================
-# تهيئة الحالة
-# ============================================================
+STATE_DEFAULTS: dict[str, Any] = {
+    "lang": CONFIG.ui.default_language,
+    "df": None,
+    "df_loaded": False,
+    "data_path": None,
+    "dataset_id": None,
+    "dataset_name": None,
+    "session_id": None,
+    "messages": [],
+    "last_operation_id": None,
+}
+
+
 def init_state() -> None:
-    """
-    يهيّئ مفاتيح st.session_state الافتراضية (idempotent).
-    يُستدعى مرة واحدة من app.py عند بدء التطبيق.
-    """
-    defaults: dict[str, Any] = {
-        # اللغة
-        "lang": CONFIG.ui.default_language,
-        # الملف الحالي
-        "df": None,
-        "df_loaded": False,
-        "data_path": None,
-        "dataset_id": None,
-        "dataset_name": None,
-        # الجلسة
-        "session_id": None,
-        # المحادثة
-        "messages": [],
-        "last_operation_id": None,
-    }
-    for key, value in defaults.items():
+    """Initialize missing session_state keys without overwriting existing values."""
+    for key, value in STATE_DEFAULTS.items():
         st.session_state.setdefault(key, value)
+    if st.session_state.get("lang") is None:
+        st.session_state["lang"] = CONFIG.ui.default_language
 
 
-# ============================================================
-# إدارة الـ DataFrame (المصدر الوحيد للحقيقة)
-# ============================================================
 def set_dataframe(
     df: pd.DataFrame | None,
     *,
@@ -65,22 +46,10 @@ def set_dataframe(
     dataset_id: int | None = None,
     reset_messages: bool = False,
 ) -> None:
-    """
-    يخزّن DataFrame في session_state ويُحدّث كل المفاتيح المرتبطة.
-
-    Args:
-        df: DataFrame أو None
-        path: مسار الملف على القرص
-        name: اسم الملف الأصلي
-        dataset_id: معرّف dataset في الذاكرة
-        reset_messages: هل نُصفّر المحادثة؟ (نعم عند رفع ملف جديد)
-    """
+    """Persist the current dataframe and related metadata in session_state."""
     ss = st.session_state
     ss["df"] = df
-    ss["df_loaded"] = bool(
-        df is not None
-        and not (hasattr(df, "empty") and df.empty)
-    )
+    ss["df_loaded"] = bool(df is not None and not (hasattr(df, "empty") and df.empty))
     if path is not None:
         ss["data_path"] = path
     if name is not None:
@@ -93,10 +62,7 @@ def set_dataframe(
 
 
 def clear_dataframe() -> None:
-    """
-    يحذف DataFrame من session_state (عند حذف الملف).
-    يُصفّر أيضاً المحادثة لأنها كانت مرتبطة بالملف.
-    """
+    """Clear the active dataframe and associated conversation state."""
     ss = st.session_state
     ss["df"] = None
     ss["df_loaded"] = False
@@ -107,56 +73,48 @@ def clear_dataframe() -> None:
     ss["last_operation_id"] = None
 
 
+def reset_dataset_state() -> None:
+    """Reset dataset-specific state when a new file is selected or removed."""
+    st.session_state["dataset_id"] = None
+    st.session_state["df"] = None
+    st.session_state["df_loaded"] = False
+    st.session_state["data_path"] = None
+    st.session_state["dataset_name"] = None
+    st.session_state["messages"] = []
+    st.session_state["last_operation_id"] = None
+
+
 def get_dataframe() -> pd.DataFrame | None:
-    """يعيد DataFrame الحالي (أو None)."""
     return st.session_state.get("df")
 
 
 def has_dataframe() -> bool:
-    """هل يوجد DataFrame محمّل وجاهز؟"""
     return bool(st.session_state.get("df_loaded"))
 
 
-# ============================================================
-# إدارة الجلسة
-# ============================================================
 def ensure_session() -> int:
-    """
-    يضمن وجود جلسة نشطة في قاعدة البيانات.
-    يعيد session_id (ينشئ جلسة جديدة إن لم توجد).
-    """
     sid = st.session_state.get("session_id")
     if sid is not None:
         return sid
-
     memory = get_memory()
-    sid = memory.create_session(
-        name=f"Session {now_iso()}",
-        metadata={"source": "streamlit"},
-    )
+    sid = memory.create_session(name=f"Session {now_iso()}", metadata={"source": "streamlit"})
     st.session_state["session_id"] = sid
     return sid
 
 
-# ============================================================
-# Exports — يجب أن تكون في النهاية لتجنب circular imports
-# ============================================================
-# noqa: E402 لأننا نستورد بعد تعريف الدوال (نتجنب circular imports)
 from ui.chat import render_chat  # noqa: E402
 from ui.dashboard import render_dashboard  # noqa: E402
 from ui.sidebar import render_sidebar  # noqa: E402
 
 
 __all__ = [
-    # تهيئة
     "init_state",
     "ensure_session",
-    # إدارة DataFrame
     "set_dataframe",
     "clear_dataframe",
+    "reset_dataset_state",
     "get_dataframe",
     "has_dataframe",
-    # المكوّنات
     "render_chat",
     "render_dashboard",
     "render_sidebar",
