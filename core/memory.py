@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any, Iterator
 
 from config import CONFIG
+from core.security import redact_text
 from utils.helpers import (
     hash_file,
     now_iso,
@@ -485,6 +486,11 @@ class MemoryStore:
         يعيد operation_id.
         """
         now = now_iso()
+        user_request = redact_text(user_request)
+        generated_code = redact_text(generated_code)
+        result_summary = redact_text(result_summary)
+        error = redact_text(error)
+
         with self._connect() as conn:
             cur = conn.execute(
                 """

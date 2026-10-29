@@ -15,7 +15,8 @@ import pandas as pd
 import streamlit as st
 
 from core.anomaly import detect_anomalies
-from core.data_audit import AuditConfig, audit_dataframe
+from core.audit_config import build_audit_config
+from core.data_audit import audit_dataframe
 from core.forecasting import build_series, detect_date_columns, forecast_series, make_figure
 from core.memory import get_memory
 from core.narrative import build_facts, llm_narrative, template_narrative
@@ -51,11 +52,19 @@ def _render_current_file() -> None:
     # 1. قسم الحجر الصحي والتأكد من جودة البيانات أولاً
     st.markdown("#### 🛡️ تقرير جودة البيانات والحجر الصحي (Data Audit & Quarantine)")
     try:
-        cfg = AuditConfig()
+        cfg = build_audit_config(df)
         report = audit_dataframe(df, cfg)
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("إجمالي الصفوف", f"{report.total_rows:,}")
+        c2.metric("✅ صالحة للتحليل", f"{report.valid_rows:,}")
+        c3.metric("🚫 معزولة", f"{report.quarantined_rows:,}")
+        c4.metric("📌 الأسباب", f"{len(report.summary_by_issue()):,}")
+        if not report.summary_by_issue().empty:
+            st.dataframe(report.summary_by_issue(), hide_index=True, use_container_width=True)
         render_audit_report(report)
     except Exception as exc:
-        st.caption(f"ℹ️ تعذّر تشغيل تقرير التدقيق التلقائي (يُظهر معاينة مباشرة): {exc}")
+        st.warning("⚠️ تعذّر فحص جودة البيانات؛ تم عرض الملف الكامل فقط مع تنبيه مرئي.")
+        st.caption(f"السبب: {exc}")
 
     st.divider()
 
@@ -220,22 +229,32 @@ def build_dashboard_analysis(
     if df is None or df.empty:
         raise ValueError("لا توجد بيانات لتحليلها.")
 
-    date_candidates = detect_date_columns(df)
+    analysis_df = df.copy()
+    audit = None
+    audit_error = None
+    try:
+        cfg = build_audit_config(df, date_col=date_col, value_col=value_col)
+        audit = audit_dataframe(df, cfg)
+        analysis_df = audit.valid.copy()
+    except Exception as exc:
+        audit_error = str(exc)
+
+    date_candidates = detect_date_columns(analysis_df)
     if not date_candidates:
         raise ValueError("لم يُعثر على عمود تاريخ صالح في الملف.")
-    chosen_date = resolve_column(df, date_col) if date_col is not None else date_candidates[0]
+    chosen_date = resolve_column(analysis_df, date_col) if date_col is not None else date_candidates[0]
     if chosen_date is None:
         raise ValueError(friendly_missing_column_message(date_col, df, lang="ar"))
 
-    numeric_cols = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
+    numeric_cols = [c for c in analysis_df.columns if pd.api.types.is_numeric_dtype(analysis_df[c])]
     if not numeric_cols:
         raise ValueError("لا يوجد عمود رقمي مناسب للتحليل.")
-    chosen_value = resolve_column(df, value_col) if value_col is not None else numeric_cols[0]
+    chosen_value = resolve_column(analysis_df, value_col) if value_col is not None else numeric_cols[0]
     if chosen_value is None:
         raise ValueError(friendly_missing_column_message(value_col, df, lang="ar"))
 
     series = build_series(
-        df,
+        analysis_df,
         date_col=chosen_date,
         value_col=None if chosen_value == "count" else chosen_value,
         agg=agg,
@@ -251,7 +270,6 @@ def build_dashboard_analysis(
     except Exception:
         narrative, source = template_narrative(facts), "template"
 
-    audit = audit_dataframe(df, AuditConfig())
     return {
         "date_col": chosen_date,
         "value_col": chosen_value,
@@ -266,6 +284,9 @@ def build_dashboard_analysis(
         "narrative": narrative,
         "narrative_source": source,
         "audit": audit,
+        "audit_error": audit_error,
+        "rows_total": len(df),
+        "rows_used": len(analysis_df),
         "metric": str(series.name),
     }
 
@@ -275,6 +296,13 @@ def _render_analysis_panel(bundle: dict[str, Any]) -> None:
     result = bundle["result"]
     anomalies = bundle["anomalies"]
     narrative = bundle["narrative"]
+
+    total_rows = int(bundle.get("rows_total", 0))
+    rows_used = int(bundle.get("rows_used", 0))
+    rows_excluded = max(total_rows - rows_used, 0)
+    st.info(f"إجمالي الصفوف: {total_rows:,} | الصفوف المستعملة في التحليل: {rows_used:,} | الصفوف المستبعدة: {rows_excluded:,}")
+    if bundle.get("audit_error"):
+        st.warning("تعذّر فحص جودة البيانات؛ التحليل تم على الملف كاملاً دون استبعاد أي صف.")
 
     st.markdown("### 🔮 التنبؤ والملخص التنفيذي")
     c1, c2, c3, c4 = st.columns(4)

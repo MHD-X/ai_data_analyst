@@ -2,7 +2,7 @@ import pandas as pd
 
 from core.memory import MemoryStore
 from core.prompts import build_dataframe_context, parse_llm_response, validate_generated_code
-from core.security import mask_df_for_llm, safe_filename
+from core.security import mask_df_for_llm, redact_text, safe_filename, save_encrypted
 from core.audit_config import build_audit_config
 
 
@@ -84,3 +84,97 @@ Explanation: This calculates the average amount.
     ok, problems = validate_generated_code(parsed.code)
     assert ok is True
     assert problems == []
+
+
+def test_audit_valid_rows_feed_forecast_input():
+    df = pd.DataFrame(
+        {
+            "date": pd.date_range("2024-01-01", periods=5, freq="D"),
+            "amount": [10, 12, 15, 18, 20],
+            "customer_id": [1, 1, 2, 2, 3],
+            "customer_name": ["Alice", "Bob", "Charlie", "Dana", "Eli"],
+        }
+    )
+    df.loc[2, "date"] = "bad-date"
+    cfg = build_audit_config(df)
+    report = __import__("core.data_audit", fromlist=["audit_dataframe"]).audit_dataframe(df, cfg)
+    assert len(report.valid) == report.valid_rows
+    assert report.valid_rows < len(df)
+    assert len(report.valid) == len(report.valid.index)
+
+
+def test_dashboard_analysis_excludes_three_invalid_dates():
+    df = pd.DataFrame(
+        {
+            "date": [
+                "2024-01-01", "bad-date", "2024-01-03", "2024-01-05",
+                "bad-date", "2024-01-07", "2024-01-09", "bad-date", "2024-01-11"
+            ],
+            "sales": [10, 20, 30, 40, 50, 60, 70, 80, 90],
+        }
+    )
+    bundle = __import__("ui.dashboard", fromlist=["build_dashboard_analysis"]).build_dashboard_analysis(
+        df,
+        date_col="date",
+        value_col="sales",
+        freq="D",
+        horizon=2,
+    )
+    assert bundle["audit"].valid_rows == 6
+    assert len(bundle["audit"].valid) == 6
+    assert bundle["audit"].quarantined_rows == 3
+
+
+def test_dashboard_analysis_audit_error_falls_back_to_full_df(monkeypatch):
+    import ui.dashboard as dashboard
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("audit failed")
+
+    monkeypatch.setattr(dashboard, "audit_dataframe", boom)
+    df = pd.DataFrame(
+        {
+            "date": ["2024-01-01", "2024-01-03", "2024-01-05", "2024-01-07", "2024-01-09"],
+            "sales": [10, 20, 30, 40, 50],
+        }
+    )
+    bundle = dashboard.build_dashboard_analysis(df, date_col="date", value_col="sales", freq="D")
+    assert bundle["audit_error"] == "audit failed"
+    assert bundle["rows_total"] == len(df)
+    assert bundle["rows_used"] == len(df)
+
+
+def test_safe_filename_hash_before_encryption(tmp_path):
+    raw = b"customer_name,email\nAlice,alice@example.com\n"
+    name = "../bad name.csv"
+    safe = safe_filename(name)
+    assert safe.endswith(".csv")
+    assert "/" not in safe
+    assert "bad name" not in safe
+
+    encrypted = save_encrypted(raw, name)
+    assert encrypted.exists()
+    assert encrypted.name != name
+    assert encrypted.name.startswith("file") or "bad" not in encrypted.name.lower()
+
+
+def test_redact_text_before_logging(tmp_path):
+    mem = MemoryStore(db_path=tmp_path / "memory.db")
+    session_id = mem.create_session("demo")
+    text = "email alice@example.com and phone +966500000000"
+    redacted = redact_text(text)
+    assert "alice@example.com" not in redacted
+    assert "+966500000000" not in redacted
+
+    op_id = mem.log_operation(
+        user_request=text,
+        generated_code="print('alice@example.com +966500000000')",
+        result_summary="ok",
+        success=True,
+        session_id=session_id,
+    )
+    op = mem.get_operation(op_id)
+    assert "alice@example.com" not in op.user_request
+    assert "+966500000000" not in op.user_request
+    assert "alice@example.com" not in op.generated_code
+    assert "+966500000000" not in op.generated_code

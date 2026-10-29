@@ -7,6 +7,8 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
+from core.audit_config import build_audit_config
+from core.data_audit import audit_dataframe
 from core.forecasting import (
     FREQ_LABELS,
     build_series,
@@ -47,12 +49,27 @@ def render_forecast() -> None:
                           help="مهم لو الملف فيه صفوف مكررة لنفس السجل (مثل ربط الشهادات).")
     horizon = c6.slider("عدد الفترات القادمة", 1, 12, 4)
 
+    audit_df = df
+    audit_report = None
+    try:
+        audit_report = audit_dataframe(df, build_audit_config(df, date_col=date_col, value_col=None if value_opt == _COUNT else value_opt))
+        audit_df = audit_report.valid
+        c7, c8, c9 = st.columns(3)
+        c7.metric("إجمالي الصفوف", f"{audit_report.total_rows:,}")
+        c8.metric("✅ صالحة للاستخدام", f"{audit_report.valid_rows:,}")
+        c9.metric("🚫 معزولة", f"{audit_report.quarantined_rows:,}")
+        if not audit_report.summary_by_issue().empty:
+            st.dataframe(audit_report.summary_by_issue(), hide_index=True, use_container_width=True)
+    except Exception as exc:
+        st.warning("⚠️ تعذّر فحص جودة البيانات؛ تم استخدام الملف الكامل مع تنبيه مرئي.")
+        st.caption(f"السبب: {exc}")
+
     if not st.button("🔮 توليد التنبؤ", type="primary"):
         return
 
     try:
         series = build_series(
-            df,
+            audit_df,
             date_col=date_col,
             value_col=None if value_opt == _COUNT else value_opt,
             agg=agg,
