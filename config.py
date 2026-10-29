@@ -30,6 +30,8 @@ DATA_DIR = BASE_DIR / "data"
 UPLOADS_DIR = DATA_DIR / "uploads"
 REPORTS_DIR = DATA_DIR / "reports"
 DB_PATH = DATA_DIR / "memory.db"
+DATABASE_URL = get_setting("DATABASE_URL", "")
+TEST_DATABASE_URL = get_setting("TEST_DATABASE_URL", "")
 
 # إنشاء المجلدات إن لم تكن موجودة
 for _p in (DATA_DIR, UPLOADS_DIR, REPORTS_DIR):
@@ -70,6 +72,7 @@ class SandboxConfig:
 @dataclass
 class MemoryConfig:
     db_path: Path = DB_PATH
+    database_url: str = DATABASE_URL
     max_few_shot_examples: int = 3
     similarity_threshold: float = 0.5
 

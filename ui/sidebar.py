@@ -12,12 +12,14 @@ ui/sidebar.py — الشريط الجانبي
 """
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pandas as pd
 import streamlit as st
 
 from config import UPLOADS_DIR
+from core.db import get_backend_name, get_database_backend, is_deployed_environment
 from core.memory import get_memory
 from utils.helpers import (
     get_dataframe_summary,
@@ -276,6 +278,11 @@ def _render_sessions() -> None:
 # ============================================================
 def _render_tools() -> None:
     ss = st.session_state
+
+    backend = get_database_backend()
+    st.caption(f"💾 Backend: {get_backend_name()}")
+    if backend == "sqlite" and is_deployed_environment():
+        st.warning("⚠️ Using SQLite in a deployed environment. Configure DATABASE_URL for Neon Postgres.")
 
     if st.button(t("clear_chat"), use_container_width=True, key="clear_chat_btn"):
         ss["messages"] = []

@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import json
 import logging
-import sqlite3
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -20,6 +19,7 @@ from pathlib import Path
 from typing import Any, Iterator
 
 from config import CONFIG
+from core.db import clear_all_sql, connect_database, execute_sql_script, get_database_backend, get_database_url, get_schema_sql
 from core.security import redact_text
 from utils.helpers import (
     hash_file,
@@ -35,68 +35,7 @@ logger = logging.getLogger(__name__)
 # ============================================================
 # Schema SQL
 # ============================================================
-SCHEMA_SQL = """
-PRAGMA foreign_keys = ON;
-
--- ============ الجلسات ============
-CREATE TABLE IF NOT EXISTS sessions (
-    id           INTEGER PRIMARY KEY AUTOINCREMENT,
-    name         TEXT NOT NULL,
-    metadata     TEXT DEFAULT '{}',
-    created_at   TEXT NOT NULL,
-    updated_at   TEXT NOT NULL
-);
-
--- ============ الملفات المرفوعة ============
-CREATE TABLE IF NOT EXISTS datasets (
-    id           INTEGER PRIMARY KEY AUTOINCREMENT,
-    session_id   INTEGER,
-    filename     TEXT NOT NULL,
-    file_hash    TEXT NOT NULL,
-    file_path    TEXT,
-    rows         INTEGER DEFAULT 0,
-    cols         INTEGER DEFAULT 0,
-    columns_info TEXT DEFAULT '{}',
-    created_at   TEXT NOT NULL,
-    FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
-);
-
-CREATE INDEX IF NOT EXISTS idx_datasets_hash ON datasets(file_hash);
-CREATE INDEX IF NOT EXISTS idx_datasets_session ON datasets(session_id);
-
--- ============ العمليات ============
-CREATE TABLE IF NOT EXISTS operations (
-    id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    dataset_id      INTEGER,
-    session_id      INTEGER,
-    user_request    TEXT NOT NULL,
-    generated_code  TEXT,
-    result_summary  TEXT,
-    success         INTEGER DEFAULT 0,
-    execution_time  REAL DEFAULT 0,
-    error           TEXT,
-    error_type      TEXT,
-    created_at      TEXT NOT NULL,
-    FOREIGN KEY (dataset_id) REFERENCES datasets(id) ON DELETE CASCADE,
-    FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
-);
-
-CREATE INDEX IF NOT EXISTS idx_operations_dataset ON operations(dataset_id);
-CREATE INDEX IF NOT EXISTS idx_operations_success ON operations(success);
-CREATE INDEX IF NOT EXISTS idx_operations_created ON operations(created_at);
-
--- ============ التقييمات ============
-CREATE TABLE IF NOT EXISTS feedback (
-    id           INTEGER PRIMARY KEY AUTOINCREMENT,
-    operation_id INTEGER NOT NULL,
-    rating       INTEGER CHECK(rating BETWEEN 1 AND 5),
-    comment      TEXT,
-    created_at   TEXT NOT NULL,
-    FOREIGN KEY (operation_id) REFERENCES operations(id) ON DELETE CASCADE
-);
-
-CREATE INDEX IF NOT EXISTS idx_feedback_operation ON feedback(operation_id);
-"""
+SCHEMA_SQL = get_schema_sql("sqlite")
 
 
 # ============================================================
@@ -161,42 +100,62 @@ class MemoryStore:
         mem.log_operation(session_id, "احسب المتوسط", "code", True)
     """
 
-    def __init__(self, db_path: str | Path | None = None) -> None:
+    def __init__(
+        self,
+        db_path: str | Path | None = None,
+        database_url: str | None = None,
+    ) -> None:
+        self.database_url = (database_url or CONFIG.memory.database_url or get_database_url() or "").strip()
+        self.backend = get_database_backend(self.database_url)
         self.db_path = Path(db_path or CONFIG.memory.db_path)
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        if self.backend == "sqlite":
+            self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._init_db()
+
+    @property
+    def backend_name(self) -> str:
+        if self.backend == "postgresql":
+            return "PostgreSQL (Neon)"
+        return "SQLite"
 
     def _init_db(self) -> None:
         """ينشئ الجداول إن لم تكن موجودة."""
         with self._connect() as conn:
-            conn.executescript(SCHEMA_SQL)
-            conn.commit()
-        logger.info("✅ قاعدة البيانات جاهزة: %s", self.db_path)
+            execute_sql_script(conn, get_schema_sql(self.backend))
+            try:
+                conn.commit()
+            except Exception:
+                pass
+        logger.info("✅ قاعدة البيانات جاهزة: %s (%s)", self.db_path, self.backend)
 
     @contextmanager
-    def _connect(self) -> Iterator[sqlite3.Connection]:
+    def _connect(self) -> Iterator[Any]:
         """مدير سياق للاتصال بقاعدة البيانات."""
-        conn = sqlite3.connect(str(self.db_path), timeout=10.0)
-        conn.row_factory = sqlite3.Row
-        try:
+        if self.backend == "postgresql":
+            with connect_database(database_url=self.database_url) as conn:
+                yield conn
+            return
+
+        with connect_database(db_path=self.db_path) as conn:
             yield conn
-        finally:
-            conn.close()
 
     # --------------------------------------------------------
     # أدوات داخلية
     # --------------------------------------------------------
     @staticmethod
-    def _row_to_dict(row: sqlite3.Row | None) -> dict[str, Any] | None:
-        """يحوّل صف SQLite إلى dict."""
+    def _row_to_dict(row: Any | None) -> dict[str, Any] | None:
+        """يحوّل صف قاعدة البيانات إلى dict."""
         if row is None:
             return None
-        return dict(row)
+        try:
+            return dict(row)
+        except Exception:
+            return {key: value for key, value in zip(row.keys(), row)} if hasattr(row, "keys") else {}
 
     @staticmethod
-    def _rows_to_dicts(rows: list[sqlite3.Row]) -> list[dict[str, Any]]:
+    def _rows_to_dicts(rows: list[Any]) -> list[dict[str, Any]]:
         """يحوّل قائمة صفوف إلى قائمة dicts."""
-        return [dict(r) for r in rows]
+        return [MemoryStore._row_to_dict(r) or {} for r in rows]
 
 # ============ نهاية الجزء 1/5 — أكمل بالجزء التالي ============
  # ========================================================
@@ -1013,11 +972,14 @@ class MemoryStore:
             )
 
         with self._connect() as conn:
-            conn.execute("DELETE FROM feedback")
-            conn.execute("DELETE FROM operations")
-            conn.execute("DELETE FROM datasets")
-            conn.execute("DELETE FROM sessions")
-            conn.execute("DELETE FROM sqlite_sequence")
+            if self.backend == "postgresql":
+                conn.execute(clear_all_sql(self.backend))
+            else:
+                conn.execute("DELETE FROM feedback")
+                conn.execute("DELETE FROM operations")
+                conn.execute("DELETE FROM datasets")
+                conn.execute("DELETE FROM sessions")
+                conn.execute("DELETE FROM sqlite_sequence")
             conn.commit()
 
         logger.warning("🧹 تم حذف كل البيانات من قاعدة البيانات")
