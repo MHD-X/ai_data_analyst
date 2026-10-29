@@ -30,10 +30,26 @@ from utils.helpers import (
 )
 from utils.i18n import t
 
+EMPTY_PERIOD_LABELS = {
+    "zero": "اعتبرها صفراً (لا مبيعات)",
+    "interpolate": "اعتبرها بيانات ناقصة (استكمال خطي)",
+}
+
 
 # ============================================================
 # القسم 1: فحص البيانات وملخص الملف الحالي
 # ============================================================
+def _selected_columns(df: pd.DataFrame) -> tuple[str | None, str | None]:
+    """يقرأ عمودَي التاريخ والمقياس اللذين اختارهما المستخدم (إن كانا صالحين)."""
+    date_col = st.session_state.get("dash_select_date_col")
+    value_col = st.session_state.get("dash_select_value_col")
+    if date_col not in df.columns:
+        date_col = None
+    if value_col not in df.columns:
+        value_col = None
+    return date_col, value_col
+
+
 def _render_current_file() -> None:
     """يعرض تقرير التدقيق والحجر الصحي وملخص الملف الحالي."""
     df: pd.DataFrame | None = st.session_state.get("df")
@@ -52,15 +68,9 @@ def _render_current_file() -> None:
     # 1. قسم الحجر الصحي والتأكد من جودة البيانات أولاً
     st.markdown("#### 🛡️ تقرير جودة البيانات والحجر الصحي (Data Audit & Quarantine)")
     try:
-        cfg = build_audit_config(df)
+        date_col, value_col = _selected_columns(df)
+        cfg = build_audit_config(df, date_col=date_col, value_col=value_col)
         report = audit_dataframe(df, cfg)
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("إجمالي الصفوف", f"{report.total_rows:,}")
-        c2.metric("✅ صالحة للتحليل", f"{report.valid_rows:,}")
-        c3.metric("🚫 معزولة", f"{report.quarantined_rows:,}")
-        c4.metric("📌 الأسباب", f"{len(report.summary_by_issue()):,}")
-        if not report.summary_by_issue().empty:
-            st.dataframe(report.summary_by_issue(), hide_index=True, use_container_width=True)
         render_audit_report(report)
     except Exception as exc:
         st.warning("⚠️ تعذّر فحص جودة البيانات؛ تم عرض الملف الكامل فقط مع تنبيه مرئي.")
@@ -224,8 +234,14 @@ def build_dashboard_analysis(
     freq: str = "W",
     horizon: int = 4,
     threshold: float = 3.5,
+    empty_periods: str = "zero",
 ) -> dict[str, Any]:
-    """يُنشئ مجموعة كاملة من النتائج التنفيذية للوحة التحكم دون تعديل البيانات الأصلية."""
+    """يُنشئ مجموعة كاملة من النتائج التنفيذية للوحة التحكم دون تعديل البيانات الأصلية.
+
+    empty_periods:
+        "zero"        → الفترة بلا سجلات تُعتبر صفراً (السلوك الافتراضي).
+        "interpolate" → الفترة بلا سجلات تُعتبر بيانات ناقصة وتُستكمل خطياً.
+    """
     if df is None or df.empty:
         raise ValueError("لا توجد بيانات لتحليلها.")
 
@@ -260,6 +276,7 @@ def build_dashboard_analysis(
         agg=agg,
         freq=freq,
         dedupe_on=None,
+        empty_periods=empty_periods,
     )
     result = forecast_series(series, horizon=horizon, freq=freq)
     anomalies = detect_anomalies(series, threshold=threshold)
@@ -277,6 +294,7 @@ def build_dashboard_analysis(
         "freq": freq,
         "horizon": horizon,
         "threshold": threshold,
+        "empty_periods": empty_periods,
         "series": series,
         "result": result,
         "anomalies": anomalies,
@@ -300,7 +318,10 @@ def _render_analysis_panel(bundle: dict[str, Any]) -> None:
     total_rows = int(bundle.get("rows_total", 0))
     rows_used = int(bundle.get("rows_used", 0))
     rows_excluded = max(total_rows - rows_used, 0)
-    st.info(f"إجمالي الصفوف: {total_rows:,} | الصفوف المستعملة في التحليل: {rows_used:,} | الصفوف المستبعدة: {rows_excluded:,}")
+    st.info(
+        f"إجمالي الصفوف: {total_rows:,} | الصفوف المستعملة في التحليل: {rows_used:,} "
+        f"| الصفوف المستبعدة: {rows_excluded:,}"
+    )
     if bundle.get("audit_error"):
         st.warning("تعذّر فحص جودة البيانات؛ التحليل تم على الملف كاملاً دون استبعاد أي صف.")
 
@@ -362,6 +383,15 @@ def render_dashboard(*args: Any, **kwargs: Any) -> None:
         )
         horizon = c4.slider("فترة التنبؤ", min_value=1, max_value=12, value=4, key="dash_slider_horizon")
 
+        empty_periods = st.selectbox(
+            "الفترات التي لا تحتوي سجلات",
+            list(EMPTY_PERIOD_LABELS),
+            format_func=EMPTY_PERIOD_LABELS.get,
+            index=0,
+            key="dash_select_empty_periods",
+            help="مثال: أسبوع أُزيلت كل صفوفه بسبب الحجر الصحي. اختر «بيانات ناقصة» لتجنب اعتباره صفراً.",
+        )
+
         if st.button("🚀 إنشاء التحليل", type="primary", use_container_width=True, key="dash_btn_run_analysis"):
             try:
                 bundle = build_dashboard_analysis(
@@ -371,6 +401,7 @@ def render_dashboard(*args: Any, **kwargs: Any) -> None:
                     agg="sum",
                     freq=freq,
                     horizon=horizon,
+                    empty_periods=empty_periods,
                 )
                 st.session_state["analysis_bundle"] = bundle
             except Exception as exc:

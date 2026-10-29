@@ -90,13 +90,16 @@ def build_series(
     freq: str = "W",
     dedupe_on=None,
     drop_partial: bool = True,
+    empty_periods: str = "zero",
 ) -> pd.Series:
     """
     يجمّع البيانات إلى سلسلة منتظمة.
     value_col=None أو agg='count' => عدّ السجلات.
     dedupe_on: عمود معرّف (مثل Enrollment ID) لإزالة الصفوف المكررة قبل التجميع.
+    empty_periods: ماذا نفعل بفترة لا تحتوي أي سجل (عند التجميع بالمجموع):
+        "zero"        → تُعتبر صفراً (السلوك الافتراضي).
+        "interpolate" → تُعتبر بيانات ناقصة وتُستكمل خطياً.
     """
-    requested_cols = [date_col, value_col, dedupe_on]
     resolved_date_col = resolve_column(df, date_col) if date_col is not None else None
     if resolved_date_col is None:
         raise ValueError(friendly_missing_column_message(date_col, df, lang="ar"))
@@ -130,7 +133,14 @@ def build_series(
             raise ValueError("العمود المختار لا يحتوي قيماً رقمية.")
 
     r = work.set_index("_ts")["_v"].resample(freq)
-    s = r.sum() if agg == "sum" else r.mean().interpolate(limit_direction="both")
+    if agg == "sum":
+        if empty_periods == "interpolate":
+            # min_count=1 → الفترة الفارغة تصبح NaN بدل 0، ثم تُستكمل خطياً
+            s = r.sum(min_count=1).interpolate(limit_direction="both")
+        else:
+            s = r.sum()
+    else:
+        s = r.mean().interpolate(limit_direction="both")
 
     # آخر فترة ناقصة (مثل أسبوع لم ينتهِ) تُضلّل النموذج → نحذفها
     last_ts = work["_ts"].max()
