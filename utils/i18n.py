@@ -119,6 +119,11 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "auth.resend_code": "إعادة إرسال الرمز",
         "auth.resend_hint": "إذا لم تستلم الرمز، يمكنك إعادة إرساله من علامة التفعيل.",
         "auth.logout": "تسجيل الخروج",
+        "auth.admin_bootstrap_missing": "ADMIN_EMAIL / ADMIN_PASSWORD غير مُعدّتين.",
+        "auth.admin_bootstrap_failed": "فشل إنشاء المسؤول: {reason}",
+        "auth.admin_bootstrap_failed_password_policy": "فشل إنشاء المسؤول: كلمة المرور لا تفي بالسياسة (10 أحرف على الأقل، ويجب ألا تحتوي على اسم البريد الإلكتروني).",
+        "auth.admin_bootstrap_failed_invalid_email": "فشل إنشاء المسؤول: تنسيق البريد الإلكتروني غير صالح.",
+        "auth.admin_bootstrap_failed_db_error": "فشل إنشاء المسؤول: خطأ في قاعدة البيانات.",
     },
     "en": {
         # --- General ---
@@ -223,6 +228,11 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "auth.resend_code": "Resend code",
         "auth.resend_hint": "If you did not receive the code, you can resend it from the verification step.",
         "auth.logout": "Log out",
+        "auth.admin_bootstrap_missing": "ADMIN_EMAIL / ADMIN_PASSWORD are not configured.",
+        "auth.admin_bootstrap_failed": "Admin bootstrap failed: {reason}",
+        "auth.admin_bootstrap_failed_password_policy": "Admin bootstrap failed: password does not meet policy (min 10 chars, must not contain the email name)",
+        "auth.admin_bootstrap_failed_invalid_email": "Admin bootstrap failed: email format is invalid.",
+        "auth.admin_bootstrap_failed_db_error": "Admin bootstrap failed: database error.",
     },
 }
 

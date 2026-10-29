@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import importlib
 import io
+import logging
 import sys
 from pathlib import Path
 from typing import Callable
@@ -48,8 +49,11 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+from core.auth import AuthStore  # noqa: E402
 from ui import ensure_session, init_state  # noqa: E402
 from utils.i18n import SUPPORTED_LANGS, get_lang, rtl_css, t  # noqa: E402
+
+logger = logging.getLogger(__name__)
 
 _FORECAST_TAB_LABELS = {"ar": "🔮 التنبؤات", "en": "🔮 Forecast"}
 
@@ -103,14 +107,42 @@ def _fallback_sidebar() -> None:
     st.info(t("under_construction", module="ui.sidebar", func="render_sidebar"))
 
 
+def _admin_bootstrap_notice() -> None:
+    reason = st.session_state.get("admin_bootstrap_error")
+    if not reason:
+        return
+    if reason == "not_configured":
+        st.warning(t("auth.admin_bootstrap_missing"))
+    elif reason == "password_policy":
+        st.warning(t("auth.admin_bootstrap_failed_password_policy"))
+    elif reason == "invalid_email":
+        st.warning(t("auth.admin_bootstrap_failed_invalid_email"))
+    elif reason == "db_error":
+        st.warning(t("auth.admin_bootstrap_failed_db_error"))
+    else:
+        st.warning(t("auth.admin_bootstrap_failed", reason=reason))
+
+
 def main() -> None:
     init_state()
+
+    try:
+        bootstrap_result = AuthStore().bootstrap_admin()
+    except Exception:
+        logger.warning("Admin bootstrap failed unexpectedly during app startup", exc_info=True)
+        bootstrap_result = "db_error"
+
+    if isinstance(bootstrap_result, str):
+        st.session_state["admin_bootstrap_error"] = bootstrap_result
+    else:
+        st.session_state.pop("admin_bootstrap_error", None)
 
     st.markdown(rtl_css(), unsafe_allow_html=True)
     st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 
     user = st.session_state.get("user")
     if not user:
+        _admin_bootstrap_notice()
         from ui.auth_page import render_auth_page
         render_auth_page()
         st.stop()

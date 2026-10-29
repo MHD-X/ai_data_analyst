@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import logging
 import re
 import secrets
 from dataclasses import dataclass
@@ -24,6 +25,15 @@ from core.db import (  # noqa: F401
 )
 from core.email_sender import send_already_registered_email, send_code_email
 from utils.helpers import now_iso
+
+logger = logging.getLogger(__name__)
+
+
+def _strip_wrapping_quotes(value: str) -> str:
+    value = (value or "").strip()
+    while len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
+        value = value[1:-1].strip()
+    return value
 
 
 def _normalize_email(email: str) -> str:
@@ -202,23 +212,40 @@ class AuthStore:
             conn.commit()
         return _verify_code_hash(code, row["code_hash"]) and attempts < 5
 
-    def bootstrap_admin(self) -> dict[str, Any] | None:
+    def bootstrap_admin(self) -> dict[str, Any] | str | None:
         with self._connect() as conn:
             count = conn.execute("SELECT COUNT(*) AS cnt FROM users").fetchone()["cnt"]
         if int(count) > 0:
             return None
-        admin_email = (get_setting("ADMIN_EMAIL", "") or "").strip().lower()
-        admin_password = (get_setting("ADMIN_PASSWORD", "") or "").strip()
+
+        admin_email = _normalize_email(_strip_wrapping_quotes((get_setting("ADMIN_EMAIL", "") or "")))
+        admin_password = _strip_wrapping_quotes((get_setting("ADMIN_PASSWORD", "") or ""))
         if not admin_email or not admin_password:
-            return None
+            logger.warning("Admin bootstrap skipped: ADMIN_EMAIL / ADMIN_PASSWORD are not configured")
+            return "not_configured"
+
         if not _is_valid_email(admin_email):
-            return None
-        with self._connect() as conn:
-            user_id = conn.insert(
-                "INSERT INTO users (email, password_hash, display_name, role, is_active, email_verified, must_change_password, failed_attempts, locked_until, created_at, last_login_at) VALUES (?, ?, ?, 'admin', 1, 1, 1, 0, NULL, ?, NULL)",
-                (admin_email, _hash_password(admin_password), "Admin", now_iso()),
+            logger.warning("Admin bootstrap failed: invalid email format")
+            return "invalid_email"
+
+        local_part = admin_email.split("@", 1)[0].lower()
+        if not admin_password or len(admin_password) < 10 or admin_password.lower() == local_part or local_part in admin_password.lower():
+            logger.warning(
+                "Admin bootstrap failed: password does not meet policy (min 10 chars, must not contain the email name)"
             )
-            conn.commit()
+            return "password_policy"
+
+        try:
+            with self._connect() as conn:
+                user_id = conn.insert(
+                    "INSERT INTO users (email, password_hash, display_name, role, is_active, email_verified, must_change_password, failed_attempts, locked_until, created_at, last_login_at) VALUES (?, ?, ?, 'admin', 1, 1, 1, 0, NULL, ?, NULL)",
+                    (admin_email, _hash_password(admin_password), "Admin", now_iso()),
+                )
+                conn.commit()
+        except Exception:
+            logger.warning("Admin bootstrap failed: database error while creating admin user", exc_info=True)
+            return "db_error"
+
         return self.get_user_by_id(user_id)
 
     def register(self, email: str, password: str, display_name: str) -> AuthResult:

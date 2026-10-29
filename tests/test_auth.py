@@ -96,9 +96,34 @@ def test_request_reset_and_change_password(auth_store):
     assert login("reset@example.com", "NewPass456", store=auth_store).ok is True
 
 
-def test_bootstrap_admin_creates_first_user(monkeypatch, tmp_path):
+def test_bootstrap_admin_rejects_weak_password_and_returns_reason(monkeypatch, tmp_path):
     monkeypatch.setenv("ADMIN_EMAIL", "admin@example.com")
-    monkeypatch.setenv("ADMIN_PASSWORD", "StrongPass123")
+    monkeypatch.setenv("ADMIN_PASSWORD", "weak")
+    monkeypatch.setenv("AUTH_SECRET", "d" * 32)
+    monkeypatch.setenv("SIGNUP_OPEN", "1")
+    store = AuthStore(db_path=tmp_path / "admin_weak.sqlite3")
+
+    reason = store.bootstrap_admin()
+    assert reason == "password_policy"
+    assert store.get_user_by_email("admin@example.com") is None
+
+
+def test_bootstrap_admin_missing_variables_return_not_configured(monkeypatch, tmp_path):
+    monkeypatch.delenv("ADMIN_EMAIL", raising=False)
+    monkeypatch.delenv("ADMIN_PASSWORD", raising=False)
+    monkeypatch.setenv("AUTH_SECRET", "e" * 32)
+    store = AuthStore(db_path=tmp_path / "admin_missing.sqlite3")
+
+    reason = store.bootstrap_admin()
+    assert reason == "not_configured"
+    with store._connect() as conn:
+        count = conn.execute("SELECT COUNT(*) AS cnt FROM users").fetchone()["cnt"]
+    assert int(count) == 0
+
+
+def test_bootstrap_admin_creates_first_user(monkeypatch, tmp_path):
+    monkeypatch.setenv("ADMIN_EMAIL", ' "admin@example.com" ')
+    monkeypatch.setenv("ADMIN_PASSWORD", ' "StrongPass123" ')
     monkeypatch.setenv("AUTH_SECRET", "b" * 32)
     monkeypatch.setenv("SIGNUP_OPEN", "1")
     store = AuthStore(db_path=tmp_path / "admin.sqlite3")
@@ -107,6 +132,12 @@ def test_bootstrap_admin_creates_first_user(monkeypatch, tmp_path):
     assert admin["role"] == "admin"
     assert admin["email_verified"] == 1
     assert admin["must_change_password"] == 1
+
+    second = store.bootstrap_admin()
+    assert second is None
+    with store._connect() as conn:
+        count = conn.execute("SELECT COUNT(*) AS cnt FROM users").fetchone()["cnt"]
+    assert int(count) == 1
 
 
 def test_signup_open_flag_controls_registration(monkeypatch, tmp_path):
