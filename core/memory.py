@@ -1,6 +1,6 @@
 """
 core/memory.py — قاعدة بيانات الذاكرة والتعلم المستمر
-SQLite-based memory for tracking operations and enabling few-shot learning.
+يعمل على SQLite محلياً وعلى PostgreSQL (Neon) عند ضبط DATABASE_URL.
 
 الجداول:
 - sessions   : جلسات المستخدم
@@ -14,12 +14,19 @@ import json
 import logging
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from datetime import datetime
 from pathlib import Path
 from typing import Any, Iterator
 
 from config import CONFIG
-from core.db import clear_all_sql, connect_database, execute_sql_script, get_database_backend, get_database_url, get_schema_sql
+from core.db import (
+    clear_all_sql,
+    connect_database,
+    execute_sql_script,
+    get_database_backend,
+    get_database_url,
+    get_schema_sql,
+    normalize_database_url,
+)
 from core.security import redact_text
 from utils.helpers import (
     hash_file,
@@ -97,7 +104,7 @@ class MemoryStore:
     الاستخدام:
         mem = MemoryStore()
         session_id = mem.create_session("جلسة تجريبية")
-        mem.log_operation(session_id, "احسب المتوسط", "code", True)
+        mem.log_operation("احسب المتوسط", "code", "", True)
     """
 
     def __init__(
@@ -105,8 +112,17 @@ class MemoryStore:
         db_path: str | Path | None = None,
         database_url: str | None = None,
     ) -> None:
-        self.database_url = (database_url or CONFIG.memory.database_url or get_database_url() or "").strip()
-        self.backend = get_database_backend(self.database_url)
+        if db_path is not None and database_url is None:
+            # مسار ملف صريح => SQLite دائماً (لا نلمس قاعدة الإنتاج من الاختبارات)
+            self.database_url = ""
+            self.backend = "sqlite"
+        else:
+            configured = getattr(CONFIG.memory, "database_url", "") or ""
+            self.database_url = normalize_database_url(
+                database_url or configured or get_database_url() or ""
+            )
+            self.backend = get_database_backend(self.database_url)
+
         self.db_path = Path(db_path or CONFIG.memory.db_path)
         if self.backend == "sqlite":
             self.db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -122,11 +138,8 @@ class MemoryStore:
         """ينشئ الجداول إن لم تكن موجودة."""
         with self._connect() as conn:
             execute_sql_script(conn, get_schema_sql(self.backend))
-            try:
-                conn.commit()
-            except Exception:
-                pass
-        logger.info("✅ قاعدة البيانات جاهزة: %s (%s)", self.db_path, self.backend)
+            conn.commit()
+        logger.info("✅ قاعدة البيانات جاهزة (%s)", self.backend)
 
     @contextmanager
     def _connect(self) -> Iterator[Any]:
@@ -147,18 +160,28 @@ class MemoryStore:
         """يحوّل صف قاعدة البيانات إلى dict."""
         if row is None:
             return None
-        try:
-            return dict(row)
-        except Exception:
-            return {key: value for key, value in zip(row.keys(), row)} if hasattr(row, "keys") else {}
+        return dict(row)
 
     @staticmethod
     def _rows_to_dicts(rows: list[Any]) -> list[dict[str, Any]]:
         """يحوّل قائمة صفوف إلى قائمة dicts."""
-        return [MemoryStore._row_to_dict(r) or {} for r in rows]
+        return [dict(r) for r in rows]
 
-# ============ نهاية الجزء 1/5 — أكمل بالجزء التالي ============
- # ========================================================
+    @staticmethod
+    def _row_to_dataset(d: dict[str, Any]) -> Dataset:
+        return Dataset(
+            id=d["id"],
+            session_id=d.get("session_id"),
+            filename=d["filename"],
+            file_hash=d["file_hash"],
+            file_path=d.get("file_path") or "",
+            rows=d.get("rows") or 0,
+            cols=d.get("cols") or 0,
+            columns_info=safe_json_loads(d.get("columns_info"), default={}),
+            created_at=d["created_at"],
+        )
+
+    # ========================================================
     # SESSIONS — الجلسات
     # ========================================================
     def create_session(
@@ -166,15 +189,12 @@ class MemoryStore:
         name: str,
         metadata: dict[str, Any] | None = None,
     ) -> int:
-        """
-        ينشئ جلسة جديدة.
-        يعيد session_id.
-        """
+        """ينشئ جلسة جديدة ويعيد session_id."""
         now = now_iso()
         meta_json = safe_json_dumps(metadata or {})
 
         with self._connect() as conn:
-            cur = conn.execute(
+            session_id = conn.insert(
                 """
                 INSERT INTO sessions (name, metadata, created_at, updated_at)
                 VALUES (?, ?, ?, ?)
@@ -182,10 +202,9 @@ class MemoryStore:
                 (name, meta_json, now, now),
             )
             conn.commit()
-            session_id = cur.lastrowid
 
         logger.info("📁 جلسة جديدة #%d: %s", session_id, name)
-        return int(session_id)
+        return session_id
 
     def get_session(self, session_id: int) -> Session | None:
         """يعيد جلسة بالمعرّف."""
@@ -221,13 +240,13 @@ class MemoryStore:
 
         return [
             Session(
-                id=r["id"],
-                name=r["name"],
-                metadata=safe_json_loads(r["metadata"], default={}),
-                created_at=r["created_at"],
-                updated_at=r["updated_at"],
+                id=d["id"],
+                name=d["name"],
+                metadata=safe_json_loads(d.get("metadata"), default={}),
+                created_at=d["created_at"],
+                updated_at=d["updated_at"],
             )
-            for r in rows
+            for d in self._rows_to_dicts(rows)
         ]
 
     def update_session(
@@ -292,7 +311,7 @@ class MemoryStore:
         info_json = safe_json_dumps(columns_info or {})
 
         with self._connect() as conn:
-            cur = conn.execute(
+            dataset_id = conn.insert(
                 """
                 INSERT INTO datasets
                     (session_id, filename, file_hash, file_path,
@@ -311,13 +330,9 @@ class MemoryStore:
                 ),
             )
             conn.commit()
-            dataset_id = cur.lastrowid
 
-        logger.info(
-            "📊 ملف جديد #%d: %s (%d×%d)",
-            dataset_id, filename, rows, cols,
-        )
-        return int(dataset_id)
+        logger.info("📊 ملف جديد #%d: %s (%d×%d)", dataset_id, filename, rows, cols)
+        return dataset_id
 
     def get_dataset(self, dataset_id: int) -> Dataset | None:
         """يعيد dataset بالمعرّف."""
@@ -329,19 +344,7 @@ class MemoryStore:
 
         if row is None:
             return None
-
-        d = dict(row)
-        return Dataset(
-            id=d["id"],
-            session_id=d.get("session_id"),
-            filename=d["filename"],
-            file_hash=d["file_hash"],
-            file_path=d.get("file_path") or "",
-            rows=d.get("rows") or 0,
-            cols=d.get("cols") or 0,
-            columns_info=safe_json_loads(d.get("columns_info"), default={}),
-            created_at=d["created_at"],
-        )
+        return self._row_to_dataset(dict(row))
 
     def get_dataset_by_hash(self, file_hash: str) -> Dataset | None:
         """يعيد dataset ببصمة الملف (لو رُفع سابقاً)."""
@@ -358,19 +361,7 @@ class MemoryStore:
 
         if row is None:
             return None
-
-        d = dict(row)
-        return Dataset(
-            id=d["id"],
-            session_id=d.get("session_id"),
-            filename=d["filename"],
-            file_hash=d["file_hash"],
-            file_path=d.get("file_path") or "",
-            rows=d.get("rows") or 0,
-            cols=d.get("cols") or 0,
-            columns_info=safe_json_loads(d.get("columns_info"), default={}),
-            created_at=d["created_at"],
-        )
+        return self._row_to_dataset(dict(row))
 
     def list_datasets(
         self,
@@ -399,20 +390,7 @@ class MemoryStore:
                     (limit,),
                 ).fetchall()
 
-        return [
-            Dataset(
-                id=r["id"],
-                session_id=r["session_id"],
-                filename=r["filename"],
-                file_hash=r["file_hash"],
-                file_path=r["file_path"] or "",
-                rows=r["rows"] or 0,
-                cols=r["cols"] or 0,
-                columns_info=safe_json_loads(r["columns_info"], default={}),
-                created_at=r["created_at"],
-            )
-            for r in [dict(r) for r in rows]
-        ]
+        return [self._row_to_dataset(d) for d in self._rows_to_dicts(rows)]
 
     def delete_dataset(self, dataset_id: int) -> bool:
         """يحذف dataset وكل عملياته."""
@@ -424,8 +402,7 @@ class MemoryStore:
             conn.commit()
             return cur.rowcount > 0
 
-# ============ نهاية الجزء 2/5 — أكمل بالجزء التالي ============
-# ========================================================
+    # ========================================================
     # OPERATIONS — العمليات المنفّذة
     # ========================================================
     def log_operation(
@@ -440,10 +417,7 @@ class MemoryStore:
         dataset_id: int | None = None,
         session_id: int | None = None,
     ) -> int:
-        """
-        يسجّل عملية في قاعدة البيانات.
-        يعيد operation_id.
-        """
+        """يسجّل عملية في قاعدة البيانات ويعيد operation_id."""
         now = now_iso()
         user_request = redact_text(user_request)
         generated_code = redact_text(generated_code)
@@ -451,7 +425,7 @@ class MemoryStore:
         error = redact_text(error)
 
         with self._connect() as conn:
-            cur = conn.execute(
+            op_id = conn.insert(
                 """
                 INSERT INTO operations
                     (dataset_id, session_id, user_request, generated_code,
@@ -473,14 +447,10 @@ class MemoryStore:
                 ),
             )
             conn.commit()
-            op_id = cur.lastrowid
 
         status = "✅" if success else "❌"
-        logger.info(
-            "%s عملية #%d: %s",
-            status, op_id, truncate_text(user_request, 60),
-        )
-        return int(op_id)
+        logger.info("%s عملية #%d: %s", status, op_id, truncate_text(user_request, 60))
+        return op_id
 
     def get_operation(self, operation_id: int) -> Operation | None:
         """يعيد عملية بالمعرّف."""
@@ -501,9 +471,7 @@ class MemoryStore:
         success_only: bool = False,
         limit: int = 50,
     ) -> list[Operation]:
-        """
-        يعيد قائمة العمليات مع فلاتر اختيارية.
-        """
+        """يعيد قائمة العمليات مع فلاتر اختيارية."""
         query = "SELECT * FROM operations WHERE 1=1"
         params: list[Any] = []
 
@@ -522,7 +490,7 @@ class MemoryStore:
         with self._connect() as conn:
             rows = conn.execute(query, params).fetchall()
 
-        return [self._row_to_operation(dict(r)) for r in rows]
+        return [self._row_to_operation(d) for d in self._rows_to_dicts(rows)]
 
     def update_operation_summary(
         self,
@@ -574,17 +542,13 @@ class MemoryStore:
         rating: int,
         comment: str = "",
     ) -> int:
-        """
-        يضيف تقييماً لعملية.
-        rating: من 1 إلى 5
-        يعيد feedback_id.
-        """
+        """يضيف تقييماً لعملية (1 إلى 5) ويعيد feedback_id."""
         if not (1 <= rating <= 5):
             raise ValueError("⚠️ التقييم يجب أن يكون بين 1 و 5")
 
         now = now_iso()
         with self._connect() as conn:
-            cur = conn.execute(
+            fb_id = conn.insert(
                 """
                 INSERT INTO feedback
                     (operation_id, rating, comment, created_at)
@@ -593,10 +557,9 @@ class MemoryStore:
                 (operation_id, rating, comment, now),
             )
             conn.commit()
-            fb_id = cur.lastrowid
 
         logger.info("⭐ تقييم #%d لعملية #%d: %d/5", fb_id, operation_id, rating)
-        return int(fb_id)
+        return fb_id
 
     def get_feedback_for_operation(
         self,
@@ -615,20 +578,20 @@ class MemoryStore:
 
         return [
             Feedback(
-                id=r["id"],
-                operation_id=r["operation_id"],
-                rating=r["rating"],
-                comment=r["comment"] or "",
-                created_at=r["created_at"],
+                id=d["id"],
+                operation_id=d["operation_id"],
+                rating=d["rating"],
+                comment=d.get("comment") or "",
+                created_at=d["created_at"],
             )
-            for r in [dict(r) for r in rows]
+            for d in self._rows_to_dicts(rows)
         ]
 
     def get_average_rating(self, operation_id: int) -> float | None:
         """يعيد متوسط تقييم عملية."""
         with self._connect() as conn:
             row = conn.execute(
-                "SELECT AVG(rating) as avg_rating FROM feedback WHERE operation_id = ?",
+                "SELECT AVG(rating) AS avg_rating FROM feedback WHERE operation_id = ?",
                 (operation_id,),
             ).fetchone()
 
@@ -646,8 +609,7 @@ class MemoryStore:
             conn.commit()
             return cur.rowcount > 0
 
-# ============ نهاية الجزء 3/5 — أكمل بالجزء التالي ============
- # ========================================================
+    # ========================================================
     # FEW-SHOT RETRIEVAL — استرجاع أمثلة مشابهة
     # ========================================================
     def find_similar_operations(
@@ -658,23 +620,14 @@ class MemoryStore:
         success_only: bool = True,
     ) -> list[Operation]:
         """
-        يبحث عن عمليات مشابهة لطلب المستخدم.
-        يستخدم تشابه نصي بسيط (كلمات مفتاحية).
-
-        Args:
-            user_request: الطلب الحالي
-            dataset_id: لو محدد، يبحث في نفس الملف فقط
-            limit: عدد النتائج (افتراضي من CONFIG)
-            success_only: فقط العمليات الناجحة
+        يبحث عن عمليات مشابهة لطلب المستخدم (تشابه نصي بالكلمات المفتاحية).
         """
         limit = limit or CONFIG.memory.max_few_shot_examples
 
-        # استخراج كلمات مفتاحية من الطلب
         keywords = self._extract_keywords(user_request)
         if not keywords:
             return []
 
-        # بناء استعلام LIKE لكل كلمة
         conditions: list[str] = []
         params: list[Any] = []
 
@@ -698,31 +651,20 @@ class MemoryStore:
         with self._connect() as conn:
             rows = conn.execute(query, params).fetchall()
 
-        # ترتيب حسب عدد الكلمات المفتاحية المتطابقة
         scored: list[tuple[int, Operation]] = []
-        for r in rows:
-            op = self._row_to_operation(dict(r))
-            score = sum(
-                1 for kw in keywords
-                if kw.lower() in op.user_request.lower()
-            )
+        for d in self._rows_to_dicts(rows):
+            op = self._row_to_operation(d)
+            score = sum(1 for kw in keywords if kw.lower() in op.user_request.lower())
             scored.append((score, op))
 
-        scored.sort(key=lambda x: (-x[0], x[1].created_at), reverse=False)
-        # نرجع الأفضل حسب score مع الأحدث
         scored.sort(key=lambda x: x[0], reverse=True)
-
         return [op for _, op in scored[:limit]]
 
     @staticmethod
     def _extract_keywords(text: str, min_length: int = 3) -> list[str]:
-        """
-        يستخرج كلمات مفتاحية من نص.
-        يتجاهل كلمات التوقف الشائعة.
-        """
+        """يستخرج كلمات مفتاحية من نص ويتجاهل كلمات التوقف الشائعة."""
         import re
 
-        # قائمة كلمات توقف عربية وإنجليزية
         stopwords = {
             # عربية
             "من", "إلى", "في", "على", "عن", "مع", "هذا", "هذه",
@@ -739,7 +681,6 @@ class MemoryStore:
             "how", "please", "me", "my", "your", "show", "give",
         }
 
-        # استخراج الكلمات (عربية + إنجليزية + أرقام)
         words = re.findall(r"[\w\u0600-\u06FF]+", text)
         keywords: list[str] = []
 
@@ -758,10 +699,8 @@ class MemoryStore:
         limit: int | None = None,
     ) -> list[dict[str, str]]:
         """
-        يعيد أمثلة جاهزة للاستخدام في prompt الـ LLM.
-
-        Returns:
-            list of {"request": ..., "code": ..., "result": ...}
+        يعيد أمثلة جاهزة للاستخدام في prompt الـ LLM:
+        list of {"request": ..., "code": ..., "result": ...}
         """
         ops = self.find_similar_operations(
             user_request,
@@ -785,38 +724,28 @@ class MemoryStore:
     # STATISTICS — إحصائيات
     # ========================================================
     def get_statistics(self) -> dict[str, Any]:
-        """
-        يعيد إحصائيات شاملة عن قاعدة البيانات.
-        """
+        """يعيد إحصائيات شاملة عن قاعدة البيانات."""
         with self._connect() as conn:
             stats: dict[str, Any] = {}
 
-            # عدد الجلسات
-            stats["total_sessions"] = conn.execute(
-                "SELECT COUNT(*) FROM sessions"
-            ).fetchone()[0]
-
-            # عدد الملفات
-            stats["total_datasets"] = conn.execute(
-                "SELECT COUNT(*) FROM datasets"
-            ).fetchone()[0]
-
-            # عدد العمليات
-            stats["total_operations"] = conn.execute(
-                "SELECT COUNT(*) FROM operations"
-            ).fetchone()[0]
-
-            # نجحت
-            stats["successful_operations"] = conn.execute(
-                "SELECT COUNT(*) FROM operations WHERE success = 1"
-            ).fetchone()[0]
-
-            # فشلت
+            stats["total_sessions"] = int(
+                conn.execute("SELECT COUNT(*) AS n FROM sessions").fetchone()["n"]
+            )
+            stats["total_datasets"] = int(
+                conn.execute("SELECT COUNT(*) AS n FROM datasets").fetchone()["n"]
+            )
+            stats["total_operations"] = int(
+                conn.execute("SELECT COUNT(*) AS n FROM operations").fetchone()["n"]
+            )
+            stats["successful_operations"] = int(
+                conn.execute(
+                    "SELECT COUNT(*) AS n FROM operations WHERE success = 1"
+                ).fetchone()["n"]
+            )
             stats["failed_operations"] = (
                 stats["total_operations"] - stats["successful_operations"]
             )
 
-            # نسبة النجاح
             if stats["total_operations"] > 0:
                 stats["success_rate"] = round(
                     stats["successful_operations"] / stats["total_operations"] * 100,
@@ -825,28 +754,30 @@ class MemoryStore:
             else:
                 stats["success_rate"] = 0.0
 
-            # متوسط وقت التنفيذ
             row = conn.execute(
-                "SELECT AVG(execution_time) FROM operations WHERE success = 1"
+                "SELECT AVG(execution_time) AS v FROM operations WHERE success = 1"
             ).fetchone()
-            stats["avg_execution_time"] = round(row[0] or 0.0, 3)
+            stats["avg_execution_time"] = round(float(row["v"] or 0.0), 3)
 
-            # عدد التقييمات
-            stats["total_feedback"] = conn.execute(
-                "SELECT COUNT(*) FROM feedback"
-            ).fetchone()[0]
+            stats["total_feedback"] = int(
+                conn.execute("SELECT COUNT(*) AS n FROM feedback").fetchone()["n"]
+            )
 
-            # متوسط التقييم العام
-            row = conn.execute(
-                "SELECT AVG(rating) FROM feedback"
-            ).fetchone()
-            stats["avg_rating"] = round(row[0] or 0.0, 2)
+            row = conn.execute("SELECT AVG(rating) AS v FROM feedback").fetchone()
+            stats["avg_rating"] = round(float(row["v"] or 0.0), 2)
 
             # حجم قاعدة البيانات
+            stats["db_size_mb"] = 0.0
             try:
-                stats["db_size_mb"] = round(
-                    self.db_path.stat().st_size / 1024 / 1024, 3
-                )
+                if self.backend == "postgresql":
+                    row = conn.execute(
+                        "SELECT pg_database_size(current_database()) AS size"
+                    ).fetchone()
+                    stats["db_size_mb"] = round(float(row["size"]) / 1024 / 1024, 3)
+                else:
+                    stats["db_size_mb"] = round(
+                        self.db_path.stat().st_size / 1024 / 1024, 3
+                    )
             except Exception:
                 stats["db_size_mb"] = 0.0
 
@@ -861,7 +792,7 @@ class MemoryStore:
         with self._connect() as conn:
             rows = conn.execute(
                 """
-                SELECT user_request, COUNT(*) as count
+                SELECT user_request, COUNT(*) AS count
                 FROM operations
                 GROUP BY user_request
                 ORDER BY count DESC
@@ -870,9 +801,11 @@ class MemoryStore:
                 (limit,),
             ).fetchall()
 
-        return [{"request": r["user_request"], "count": r["count"]} for r in rows]
+        return [
+            {"request": d["user_request"], "count": int(d["count"])}
+            for d in self._rows_to_dicts(rows)
+        ]
 
-# ============ نهاية الجزء 4/5 — أكمل بالجزء التالي ============
     # ========================================================
     # EXPORT — تصدير البيانات
     # ========================================================
@@ -882,9 +815,7 @@ class MemoryStore:
         include_operations: bool = True,
         include_feedback: bool = True,
     ) -> Path:
-        """
-        يصدّر محتوى قاعدة البيانات إلى JSON.
-        """
+        """يصدّر محتوى قاعدة البيانات إلى JSON."""
         output_path = Path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -897,20 +828,16 @@ class MemoryStore:
         }
 
         with self._connect() as conn:
-            # الجلسات
             rows = conn.execute("SELECT * FROM sessions").fetchall()
             data["sessions"] = self._rows_to_dicts(rows)
 
-            # الملفات
             rows = conn.execute("SELECT * FROM datasets").fetchall()
             data["datasets"] = self._rows_to_dicts(rows)
 
-            # العمليات
             if include_operations:
                 rows = conn.execute("SELECT * FROM operations").fetchall()
                 data["operations"] = self._rows_to_dicts(rows)
 
-            # التقييمات
             if include_feedback:
                 rows = conn.execute("SELECT * FROM feedback").fetchall()
                 data["feedback"] = self._rows_to_dicts(rows)
@@ -926,10 +853,7 @@ class MemoryStore:
         self,
         output_dir: str | Path,
     ) -> dict[str, Path]:
-        """
-        يصدّر كل جدول إلى ملف CSV منفصل.
-        يعيد dict: {table_name: file_path}
-        """
+        """يصدّر كل جدول إلى ملف CSV منفصل ويعيد {table_name: file_path}."""
         import csv
 
         output_dir = Path(output_dir)
@@ -940,18 +864,20 @@ class MemoryStore:
 
         with self._connect() as conn:
             for table in tables:
-                rows = conn.execute(f"SELECT * FROM {table}").fetchall()
+                rows = self._rows_to_dicts(
+                    conn.execute(f"SELECT * FROM {table}").fetchall()
+                )
                 if not rows:
                     continue
 
                 csv_path = output_dir / f"{table}.csv"
-                fieldnames = rows[0].keys()
+                fieldnames = list(rows[0].keys())
 
                 with csv_path.open("w", encoding="utf-8-sig", newline="") as f:
                     writer = csv.DictWriter(f, fieldnames=fieldnames)
                     writer.writeheader()
                     for row in rows:
-                        writer.writerow(dict(row))
+                        writer.writerow(row)
 
                 exported[table] = csv_path
                 logger.info("📤 تم تصدير %s → %s", table, csv_path)
@@ -962,14 +888,9 @@ class MemoryStore:
     # CLEANUP — تنظيف
     # ========================================================
     def clear_all(self, confirm: bool = False) -> bool:
-        """
-        يحذف كل البيانات (بحذر!).
-        يتطلب confirm=True.
-        """
+        """يحذف كل البيانات (بحذر!). يتطلب confirm=True."""
         if not confirm:
-            raise ValueError(
-                "⚠️ لحذف كل البيانات، مرّر confirm=True"
-            )
+            raise ValueError("⚠️ لحذف كل البيانات، مرّر confirm=True")
 
         with self._connect() as conn:
             if self.backend == "postgresql":
@@ -986,10 +907,7 @@ class MemoryStore:
         return True
 
     def cleanup_old_operations(self, days: int = 30) -> int:
-        """
-        يحذف العمليات الأقدم من N يوم.
-        يعيد عدد العمليات المحذوفة.
-        """
+        """يحذف العمليات الأقدم من N يوم ويعيد عددها."""
         from datetime import datetime, timedelta
 
         cutoff = (datetime.now() - timedelta(days=days)).isoformat()
@@ -1006,7 +924,10 @@ class MemoryStore:
         return deleted
 
     def vacuum(self) -> None:
-        """يعيد ضغط قاعدة البيانات (يوفّر مساحة)."""
+        """يعيد ضغط قاعدة SQLite. على PostgreSQL (Neon) تتولاه الخدمة تلقائياً."""
+        if self.backend == "postgresql":
+            logger.info("VACUUM غير مطلوب: Neon يديره تلقائياً")
+            return
         with self._connect() as conn:
             conn.execute("VACUUM")
             conn.commit()
@@ -1034,7 +955,7 @@ def reset_memory() -> None:
 
 
 # ============================================================
-# اختبار مباشر
+# اختبار مباشر (SQLite مؤقت فقط — لا يلمس قاعدة الإنتاج)
 # ============================================================
 if __name__ == "__main__":
     import tempfile
@@ -1048,115 +969,37 @@ if __name__ == "__main__":
     print("🧪 اختبار core/memory.py")
     print("=" * 60)
 
-    # استخدام قاعدة بيانات مؤقتة للاختبار
     with tempfile.TemporaryDirectory() as tmp_dir:
         test_db = Path(tmp_dir) / "test_memory.db"
         mem = MemoryStore(test_db)
-        print(f"\n📁 قاعدة اختبار: {test_db}")
+        print(f"\n📁 قاعدة اختبار: {test_db} ({mem.backend})")
 
-        # ---------- 1. الجلسات ----------
-        print("\n[1] الجلسات:")
         sid = mem.create_session("جلسة اختبار", {"user": "test"})
-        print(f"   ✅ Session ID: {sid}")
-        s = mem.get_session(sid)
-        print(f"   📝 الاسم: {s.name}")
-        print(f"   📋 عدد الجلسات: {len(mem.list_sessions())}")
+        print(f"[1] Session ID: {sid} | الاسم: {mem.get_session(sid).name}")
 
-        # ---------- 2. الملفات ----------
-        print("\n[2] الملفات:")
         csv_file = Path(tmp_dir) / "data.csv"
         csv_file.write_text("a,b,c\n1,2,3\n4,5,6\n", encoding="utf-8")
         did = mem.save_dataset(
-            filename="data.csv",
-            file_path=csv_file,
-            rows=2,
-            cols=3,
-            columns_info={"a": "int", "b": "int", "c": "int"},
-            session_id=sid,
+            filename="data.csv", file_path=csv_file, rows=2, cols=3,
+            columns_info={"a": "int", "b": "int", "c": "int"}, session_id=sid,
         )
-        print(f"   ✅ Dataset ID: {did}")
-        d = mem.get_dataset(did)
-        print(f"   📄 الملف: {d.filename} ({d.rows}×{d.cols})")
+        print(f"[2] Dataset ID: {did} | عدد الملفات: {len(mem.list_datasets())}")
 
-        # ---------- 3. العمليات ----------
-        print("\n[3] العمليات:")
         op1 = mem.log_operation(
-            user_request="احسب متوسط العمود a",
-            generated_code="avg = df['a'].mean()",
-            result_summary="المتوسط = 2.5",
-            success=True,
-            execution_time=0.5,
-            dataset_id=did,
-            session_id=sid,
+            user_request="احسب متوسط العمود a", generated_code="avg = df['a'].mean()",
+            result_summary="المتوسط = 2.5", success=True, execution_time=0.5,
+            dataset_id=did, session_id=sid,
         )
-        op2 = mem.log_operation(
-            user_request="ارسم مخطط العمود b",
-            generated_code="px.line(df, y='b')",
-            result_summary="تم رسم المخطط",
-            success=True,
-            execution_time=1.2,
-            dataset_id=did,
-            session_id=sid,
-        )
-        op3 = mem.log_operation(
-            user_request="احسب مجموع العمود c",
-            generated_code="total = df['c'].sum()",
-            result_summary="المجموع = 9",
-            success=False,
-            error="KeyError: 'c'",
-            error_type="KeyError",
-            dataset_id=did,
-            session_id=sid,
-        )
-        print(f"   ✅ العمليات: {op1}, {op2}, {op3}")
+        print(f"[3] Operation ID: {op1}")
 
-        # ---------- 4. التقييمات ----------
-        print("\n[4] التقييمات:")
-        fb1 = mem.add_feedback(op1, rating=5, comment="ممتاز")
-        fb2 = mem.add_feedback(op1, rating=4, comment="جيد")
-        print(f"   ⭐ تقييمات: {fb1}, {fb2}")
-        print(f"   📊 متوسط التقييم: {mem.get_average_rating(op1)}")
+        mem.add_feedback(op1, rating=5, comment="ممتاز")
+        mem.add_feedback(op1, rating=4, comment="جيد")
+        print(f"[4] متوسط التقييم: {mem.get_average_rating(op1)}")
 
-         # ---------- 5. Few-Shot Retrieval ----------
-        print("\n[5] البحث عن عمليات مشابهة:")
-        similar = mem.find_similar_operations("احسب متوسط العمود a")
-        print(f"   🔍 عدد النتائج المشابهة: {len(similar)}")
-        for op in similar:
-            print(f"     - {op.user_request}")
+        print(f"[5] أمثلة few-shot: {len(mem.get_few_shot_examples('احسب متوسط العمود a'))}")
+        print(f"[6] الإحصائيات: {mem.get_statistics()}")
 
-        # ---------- 6. أمثلة Few-Shot ----------
-        print("\n[6] أمثلة Few-Shot:")
-        examples = mem.get_few_shot_examples("احسب متوسط العمود a")
-        print(f"   📚 عدد الأمثلة: {len(examples)}")
-        for ex in examples:
-            print(f"     → {ex['request']}")
-
-        # ---------- 7. الإحصائيات ----------
-        print("\n[7] الإحصائيات:")
-        stats = mem.get_statistics()
-        for k, v in stats.items():
-            print(f"   {k}: {v}")
-
-        # ---------- 8. التصدير ----------
-        print("\n[8] التصدير:")
-        json_path = mem.export_to_json(Path(tmp_dir) / "export.json")
-        print(f"   📤 JSON: {json_path.name} ({json_path.stat().st_size} bytes)")
-
-        csv_dir = Path(tmp_dir) / "csv_export"
-        csv_files = mem.export_to_csv(csv_dir)
-        print(f"   📤 CSV: {list(csv_files.keys())}")
-
-        # ---------- 9. التنظيف ----------
-        print("\n[9] التنظيف:")
-        deleted = mem.cleanup_old_operations(days=0)
-        print(f"   🧹 عمليات محذوفة: {deleted}")
-
-        # ---------- 10. الحذف الكامل ----------
-        print("\n[10] الحذف الكامل:")
         mem.clear_all(confirm=True)
-        stats_after = mem.get_statistics()
-        print(f"   ✅ عمليات متبقية: {stats_after['total_operations']}")
+        print(f"[7] عمليات متبقية: {mem.get_statistics()['total_operations']}")
 
-    print("\n" + "=" * 60)
-    print("✅ اكتمل اختبار memory.py بنجاح")
-    print("=" * 60)
+    print("\n✅ اكتمل اختبار memory.py")
