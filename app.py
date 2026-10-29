@@ -3,7 +3,6 @@ app.py — نقطة الدخول الرئيسية لـ Streamlit
 """
 from __future__ import annotations
 
-import hmac
 import importlib
 import io
 import sys
@@ -72,24 +71,6 @@ CUSTOM_CSS = """
 </style>
 """
 
-def _check_password() -> bool:
-    expected = get_setting("APP_PASSWORD", "")
-    if not expected:
-        return True
-    if st.session_state.get("authenticated"):
-        return True
-
-    st.title(f"{CONFIG.ui.page_icon} {CONFIG.ui.page_title}")
-    entered = st.text_input("كلمة المرور / Password", type="password", key="app_password_input")
-    if entered:
-        if hmac.compare_digest(entered.encode("utf-8"), expected.encode("utf-8")):
-            st.session_state["authenticated"] = True
-            st.rerun()
-        else:
-            st.error("كلمة المرور غير صحيحة / Incorrect password")
-    return False
-
-
 def _render(
     module_name: str,
     func_name: str,
@@ -125,7 +106,18 @@ def _fallback_sidebar() -> None:
 def main() -> None:
     init_state()
 
-    if not _check_password():
+    st.markdown(rtl_css(), unsafe_allow_html=True)
+    st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
+
+    user = st.session_state.get("user")
+    if not user:
+        from ui.auth_page import render_auth_page
+        render_auth_page()
+        st.stop()
+
+    if user.get("must_change_password"):
+        from ui.auth_page import render_password_change_required
+        render_password_change_required(user)
         st.stop()
 
     try:
@@ -134,9 +126,6 @@ def main() -> None:
         st.error(t("db_error"))
         st.exception(exc)
         st.stop()
-
-    st.markdown(rtl_css(), unsafe_allow_html=True)
-    st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 
     with st.sidebar:
         st.header(t("sidebar_title"))

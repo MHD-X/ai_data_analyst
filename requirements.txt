@@ -23,6 +23,7 @@ cryptography
 pydantic==2.9.2
 tabulate==0.9.0
 psycopg[binary]==3.2.3
+argon2-cffi==23.1.0
 #=======
 reportlab>=3.6.0
 arabic-reshaper>=3.0.0

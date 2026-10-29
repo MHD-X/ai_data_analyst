@@ -278,6 +278,15 @@ def _render_sessions() -> None:
 # ============================================================
 def _render_tools() -> None:
     ss = st.session_state
+    user = ss.get("user") or {}
+
+    if user:
+        st.caption(f"👤 {user.get('email', '')}")
+        if st.button(t("auth.logout"), use_container_width=True, key="logout_btn"):
+            for key in list(ss.keys()):
+                if key != "lang":
+                    del ss[key]
+            st.rerun()
 
     backend = get_database_backend()
     st.caption(f"💾 Backend: {get_backend_name()}")

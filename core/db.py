@@ -153,6 +153,36 @@ def get_schema_sql(backend: str | None = None) -> str:
         );
 
         CREATE INDEX IF NOT EXISTS idx_feedback_operation ON feedback(operation_id);
+
+        CREATE TABLE IF NOT EXISTS users (
+            id BIGSERIAL PRIMARY KEY,
+            email TEXT NOT NULL UNIQUE,
+            password_hash TEXT NOT NULL,
+            display_name TEXT NOT NULL DEFAULT '',
+            role TEXT NOT NULL DEFAULT 'user',
+            is_active INTEGER NOT NULL DEFAULT 1,
+            email_verified INTEGER NOT NULL DEFAULT 0,
+            must_change_password INTEGER NOT NULL DEFAULT 0,
+            failed_attempts INTEGER NOT NULL DEFAULT 0,
+            locked_until TEXT NULL,
+            created_at TEXT NOT NULL,
+            last_login_at TEXT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS email_codes (
+            id BIGSERIAL PRIMARY KEY,
+            user_id BIGINT NOT NULL,
+            purpose TEXT NOT NULL,
+            code_hash TEXT NOT NULL,
+            expires_at TEXT NOT NULL,
+            attempts INTEGER NOT NULL DEFAULT 0,
+            used INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_email_codes_user ON email_codes(user_id);
+        CREATE INDEX IF NOT EXISTS idx_email_codes_purpose ON email_codes(purpose);
         """
 
     return """
@@ -212,6 +242,36 @@ def get_schema_sql(backend: str | None = None) -> str:
     );
 
     CREATE INDEX IF NOT EXISTS idx_feedback_operation ON feedback(operation_id);
+
+    CREATE TABLE IF NOT EXISTS users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        email TEXT NOT NULL UNIQUE,
+        password_hash TEXT NOT NULL,
+        display_name TEXT NOT NULL DEFAULT '',
+        role TEXT NOT NULL DEFAULT 'user',
+        is_active INTEGER NOT NULL DEFAULT 1,
+        email_verified INTEGER NOT NULL DEFAULT 0,
+        must_change_password INTEGER NOT NULL DEFAULT 0,
+        failed_attempts INTEGER NOT NULL DEFAULT 0,
+        locked_until TEXT NULL,
+        created_at TEXT NOT NULL,
+        last_login_at TEXT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS email_codes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        purpose TEXT NOT NULL,
+        code_hash TEXT NOT NULL,
+        expires_at TEXT NOT NULL,
+        attempts INTEGER NOT NULL DEFAULT 0,
+        used INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_email_codes_user ON email_codes(user_id);
+    CREATE INDEX IF NOT EXISTS idx_email_codes_purpose ON email_codes(purpose);
     """
 
 
