@@ -27,7 +27,7 @@ def render_forecast() -> None:
         st.info("ارفع ملفاً من الشريط الجانبي أولاً.")
         return
 
-    date_cols = detect_date_columns(df)
+    date_cols = detect_date_columns(df, min_ratio=0.5)
     if not date_cols:
         st.warning("لم يُعثر على عمود تاريخ صالح في الملف.")
         return

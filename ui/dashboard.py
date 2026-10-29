@@ -239,7 +239,7 @@ def build_dashboard_analysis(
     except Exception as exc:
         audit_error = str(exc)
 
-    date_candidates = detect_date_columns(analysis_df)
+    date_candidates = detect_date_columns(analysis_df, min_ratio=0.5)
     if not date_candidates:
         raise ValueError("لم يُعثر على عمود تاريخ صالح في الملف.")
     chosen_date = resolve_column(analysis_df, date_col) if date_col is not None else date_candidates[0]
@@ -344,7 +344,7 @@ def render_dashboard(*args: Any, **kwargs: Any) -> None:
 
     st.markdown("### 📊 تحليل البيانات التلقائي")
     with st.container():
-        date_options = detect_date_columns(df)
+        date_options = detect_date_columns(df, min_ratio=0.5)
         metric_options = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
         if not date_options or not metric_options:
             st.warning("الملف الحالي لا يحتوي على عمود تاريخ صالح أو عمود رقمي مناسب للتحليل.")

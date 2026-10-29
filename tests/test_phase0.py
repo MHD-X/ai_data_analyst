@@ -103,14 +103,15 @@ def test_audit_valid_rows_feed_forecast_input():
     assert len(report.valid) == len(report.valid.index)
 
 
-def test_dashboard_analysis_excludes_three_invalid_dates():
+def test_dashboard_analysis_with_three_invalid_dates_quarantines_them():
     df = pd.DataFrame(
         {
             "date": [
-                "2024-01-01", "bad-date", "2024-01-03", "2024-01-05",
-                "bad-date", "2024-01-07", "2024-01-09", "bad-date", "2024-01-11"
+                "2024-01-01", "2024-01-02", "2024-01-03", "bad-date",
+                "2024-01-05", "2024-01-06", "2024-01-07", "bad-date",
+                "2024-01-09", "2024-01-10", "2024-01-11", "bad-date",
             ],
-            "sales": [10, 20, 30, 40, 50, 60, 70, 80, 90],
+            "sales": [10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21],
         }
     )
     bundle = __import__("ui.dashboard", fromlist=["build_dashboard_analysis"]).build_dashboard_analysis(
@@ -120,9 +121,10 @@ def test_dashboard_analysis_excludes_three_invalid_dates():
         freq="D",
         horizon=2,
     )
-    assert bundle["audit"].valid_rows == 6
-    assert len(bundle["audit"].valid) == 6
+    assert bundle["rows_total"] == 12
+    assert bundle["rows_used"] == 9
     assert bundle["audit"].quarantined_rows == 3
+    assert bundle["audit"].valid_rows == 9
 
 
 def test_dashboard_analysis_audit_error_falls_back_to_full_df(monkeypatch):
