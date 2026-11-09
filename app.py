@@ -4,6 +4,7 @@ from __future__ import annotations
 import importlib
 import io
 import logging
+import re
 import sys
 from pathlib import Path
 from typing import Callable
@@ -50,6 +51,84 @@ from utils.i18n import SUPPORTED_LANGS, get_lang, normalize_language, rtl_css, t
 logger = logging.getLogger(__name__)
 
 _FORECAST_TAB_LABELS = {"ar": "🔮 التنبؤات", "en": "🔮 Forecast"}
+_LOGO_PATH = ROOT / "assets" / "logo.png"
+_ICON_PATH = ROOT / "assets" / "icon.png"
+
+
+def _streamlit_supports_logo() -> bool:
+    try:
+        version = getattr(st, "__version__", "0") or "0"
+        numeric = [int(part) for part in re.findall(r"\d+", version)[:3]]
+        if len(numeric) >= 2:
+            return tuple(numeric[:2]) >= (1, 35)
+    except Exception:
+        pass
+    return hasattr(st, "logo")
+
+
+def _render_logo_images() -> bool:
+    if not _LOGO_PATH.exists() or not _ICON_PATH.exists():
+        st.warning("Logo image not found. Please add assets/logo.png and assets/icon.png")
+        return False
+
+    if _streamlit_supports_logo():
+        try:
+            st.logo(str(_LOGO_PATH), icon_image=str(_ICON_PATH))
+            return True
+        except TypeError:
+            try:
+                st.logo(image=str(_LOGO_PATH), icon_image=str(_ICON_PATH))
+                return True
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+    st.image(str(_LOGO_PATH), width=220)
+    return True
+
+
+def _render_main_page_logo() -> None:
+    if not _LOGO_PATH.exists():
+        st.warning("Logo image not found. Please add assets/logo.png and assets/icon.png")
+        return
+    st.image(str(_LOGO_PATH), width=220)
+
+
+def _render_sidebar_collapse_css() -> None:
+    st.markdown(
+        """
+        <style>
+        [data-testid="stSidebarCollapseButton"] {
+            position: fixed !important;
+            top: 0.75rem !important;
+            right: 0.75rem !important;
+            z-index: 2147483647 !important;
+            border-radius: 0.6rem !important;
+            border: 1px solid rgba(148, 163, 184, 0.25) !important;
+            background: rgba(15, 23, 42, 0.9) !important;
+            box-shadow: 0 10px 28px rgba(2, 6, 23, 0.35) !important;
+            opacity: 1 !important;
+            visibility: visible !important;
+            pointer-events: auto !important;
+        }
+        [data-testid="stSidebarCollapseButton"]:hover {
+            background: rgba(17, 24, 39, 0.98) !important;
+        }
+        [data-testid="stHeader"] {
+            background: transparent !important;
+        }
+        section[data-testid="stSidebar"] {
+            z-index: 5 !important;
+        }
+        [data-testid="stSidebar"] {
+            position: relative !important;
+            z-index: 10 !important;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 def _render(module_name: str, func_name: str, fallback: Callable[[], None] | None = None) -> None:
@@ -120,6 +199,8 @@ def main() -> None:
 
     st.markdown(rtl_css(), unsafe_allow_html=True)
     apply_theme(get_lang())
+    _render_sidebar_collapse_css()
+    _render_logo_images()
 
     user = st.session_state.get("user")
     if not is_authenticated(st.session_state, user):
@@ -152,6 +233,7 @@ def main() -> None:
         st.header(t("sidebar_title"))
         _render("ui.sidebar", "render_sidebar", fallback=_fallback_sidebar)
 
+    _render_main_page_logo()
     st.title(f"{CONFIG.ui.page_icon} {t('app_title')}")
     st.caption(t("app_subtitle"))
 
