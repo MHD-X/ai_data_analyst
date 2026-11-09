@@ -102,6 +102,11 @@ def _logout_current_user() -> None:
 def main() -> None:
     init_state()
     st.session_state.setdefault("lang", CONFIG.ui.default_language)
+    st.session_state.setdefault("language", st.session_state["lang"])
+    if st.session_state.get("language") not in SUPPORTED_LANGS:
+        st.session_state["language"] = st.session_state["lang"]
+    if st.session_state.get("lang") not in SUPPORTED_LANGS:
+        st.session_state["lang"] = st.session_state["language"]
 
     try:
         bootstrap_result = AuthStore().bootstrap_admin()

@@ -66,20 +66,20 @@ def _render_current_file() -> None:
     mem_mb = summary.get("memory_usage_mb", 0.0)
 
     # 1. قسم الحجر الصحي والتأكد من جودة البيانات أولاً
-    st.markdown("#### 🛡️ تقرير جودة البيانات والحجر الصحي (Data Audit & Quarantine)")
+    st.markdown(f"#### {t('forecast.data_quality_heading')}")
     try:
         date_col, value_col = _selected_columns(df)
         cfg = build_audit_config(df, date_col=date_col, value_col=value_col)
         report = audit_dataframe(df, cfg)
         render_audit_report(report)
     except Exception as exc:
-        st.warning("⚠️ تعذّر فحص جودة البيانات؛ تم عرض الملف الكامل فقط مع تنبيه مرئي.")
-        st.caption(f"السبب: {exc}")
+        st.warning(t("forecast.audit_error"))
+        st.caption(f"{t('explanation')}: {exc}")
 
     st.divider()
 
     # 2. ملخص الهيكل والمعاينة الفنية
-    st.markdown("#### 📊 النظرة العامة والتركيب")
+    st.markdown(f"#### {t('forecast.overview')}")
     c1, c2, c3 = st.columns(3)
     c1.metric(t("rows_label"), f"{rows:,}")
     c2.metric(t("cols_label"), f"{cols:,}")
@@ -322,26 +322,26 @@ def _render_analysis_panel(bundle: dict[str, Any]) -> None:
     rows_used = int(bundle.get("rows_used", 0))
     rows_excluded = max(total_rows - rows_used, 0)
     st.info(
-        f"إجمالي الصفوف: {total_rows:,} | الصفوف المستعملة في التحليل: {rows_used:,} "
-        f"| الصفوف المستبعدة: {rows_excluded:,}"
+        f"{t('forecast.total_rows')}: {total_rows:,} | {t('forecast.valid_rows')}: {rows_used:,} "
+        f"| {t('forecast.quarantined_rows')}: {rows_excluded:,}"
     )
     if bundle.get("audit_error"):
-        st.warning("تعذّر فحص جودة البيانات؛ التحليل تم على الملف كاملاً دون استبعاد أي صف.")
+        st.warning(t("forecast.audit_error"))
 
-    st.markdown("### 🔮 التنبؤ والملخص التنفيذي")
+    st.markdown(f"### {t('forecast.summary_panel')}")
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("النموذج", result.model_name)
-    c2.metric("متوسط التنبؤ", f"{float(result.forecast['yhat'].mean()):,.2f}")
-    c3.metric("آخر قيمة", f"{float(bundle['series'].iloc[-1]):,.2f}")
-    c4.metric("الشواذ", anomalies.count if anomalies is not None else 0)
+    c1.metric(t("forecast.model_label"), result.model_name)
+    c2.metric(t("forecast.average_prediction"), f"{float(result.forecast['yhat'].mean()):,.2f}")
+    c3.metric(t("forecast.last_value"), f"{float(bundle['series'].iloc[-1]):,.2f}")
+    c4.metric(t("forecast.anomalies"), anomalies.count if anomalies is not None else 0)
 
     st.plotly_chart(make_figure(result), use_container_width=True)
 
-    with st.expander("📌 الملخص التنفيذي بالعربية", expanded=True):
+    with st.expander(t("forecast.summary"), expanded=True):
         st.markdown(narrative)
 
     if anomalies is not None and anomalies.count:
-        with st.expander("⚠️ القيم الشاذة", expanded=False):
+        with st.expander("⚠️ " + t("forecast.anomalies"), expanded=False):
             display = anomalies.table.reset_index().rename(columns={
                 "index": "التاريخ",
                 "value": "القيمة",
@@ -351,7 +351,7 @@ def _render_analysis_panel(bundle: dict[str, Any]) -> None:
             })
             st.dataframe(display, use_container_width=True, hide_index=True)
     else:
-        st.caption("لم تُرصد قيم شاذة في السلسلة التاريخية.")
+        st.caption(t("forecast.no_anomalies"))
 
     render_report_export(bundle)
 
@@ -366,36 +366,38 @@ def render_dashboard(*args: Any, **kwargs: Any) -> None:
         st.info(t("no_file"))
         return
 
-    st.markdown("### 📊 تحليل البيانات التلقائي")
+    st.markdown(f"### {t('forecast.auto_analysis')}")
     with st.container():
         date_options = detect_date_columns(df, min_ratio=0.5)
         metric_options = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
         if not date_options or not metric_options:
-            st.warning("الملف الحالي لا يحتوي على عمود تاريخ صالح أو عمود رقمي مناسب للتحليل.")
+            st.warning(t("forecast.no_valid_data"))
             return
 
         c1, c2, c3, c4 = st.columns(4)
-        date_col = c1.selectbox("عمود التاريخ", date_options, index=0, key="dash_select_date_col")
-        value_col = c2.selectbox("المقياس", metric_options, index=0, key="dash_select_value_col")
+        date_col = c1.selectbox(t("forecast.date_column"), date_options, index=0, key="dash_select_date_col")
+        value_col = c2.selectbox(t("forecast.metric"), metric_options, index=0, key="dash_select_value_col")
         freq = c3.selectbox(
-            "التجميع",
+            t("forecast.frequency"),
             ["D", "W", "ME"],
-            format_func={"D": "يومي", "W": "أسبوعي", "ME": "شهري"}.get,
+            format_func={"D": "Daily", "W": "Weekly", "ME": "Monthly"}.get,
             index=1,
             key="dash_select_freq",
         )
-        horizon = c4.slider("فترة التنبؤ", min_value=1, max_value=12, value=4, key="dash_slider_horizon")
+        horizon = c4.slider(t("forecast.prediction_window"), min_value=1, max_value=12, value=4, key="dash_slider_horizon")
 
         empty_periods = st.selectbox(
-            "الفترات التي لا تحتوي سجلات",
+            t("forecast.empty_periods"),
             list(EMPTY_PERIOD_LABELS),
-            format_func=EMPTY_PERIOD_LABELS.get,
+            format_func=lambda key: (
+                t("forecast.empty_zero") if key == "zero" else t("forecast.empty_interpolate")
+            ),
             index=0,
             key="dash_select_empty_periods",
-            help="مثال: أسبوع أُزيلت كل صفوفه بسبب الحجر الصحي. اختر «بيانات ناقصة» لتجنب اعتباره صفراً.",
+            help=t("forecast.empty_periods_help"),
         )
 
-        if st.button("🚀 إنشاء التحليل", type="primary", use_container_width=True, key="dash_btn_run_analysis"):
+        if st.button(t("forecast.run_analysis"), type="primary", use_container_width=True, key="dash_btn_run_analysis"):
             try:
                 bundle = build_dashboard_analysis(
                     df,
@@ -408,7 +410,7 @@ def render_dashboard(*args: Any, **kwargs: Any) -> None:
                 )
                 st.session_state["analysis_bundle"] = bundle
             except Exception as exc:
-                st.error(f"تعذّر إنشاء التحليل: {exc}")
+                st.error(t("forecast.analysis_error", error=str(exc)))
                 return
 
     bundle = st.session_state.get("analysis_bundle")

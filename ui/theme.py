@@ -45,12 +45,21 @@ def build_theme_css(lang: str | None = None) -> str:
         color: var(--between-text);
         font-family: {font_stack};
         direction: {direction};
+        min-height: 100vh;
+    }}
+
+    .stApp [data-testid="stMain"] {{
+        overflow-x: hidden;
     }}
 
     .stApp .block-container {{
-        max-width: 1300px;
+        max-width: none;
+        width: min(100%, 1500px);
+        padding-left: clamp(0.75rem, 2.2vw, 2rem);
+        padding-right: clamp(0.75rem, 2.2vw, 2rem);
         padding-top: 2rem;
         padding-bottom: 4rem;
+        transition: width 0.25s ease, max-width 0.25s ease, padding 0.25s ease;
     }}
 
     [data-testid="stSidebar"] {{
@@ -58,6 +67,23 @@ def build_theme_css(lang: str | None = None) -> str:
         border-right: 1px solid var(--between-border);
         border-left: 1px solid var(--between-border);
         box-shadow: inset -1px 0 0 rgba(255,255,255,0.04);
+        width: 22rem !important;
+        min-width: 18rem !important;
+        max-width: 24rem !important;
+        transition: width 0.25s ease, min-width 0.25s ease, max-width 0.25s ease;
+        overflow-x: hidden;
+    }}
+
+    [data-testid="stSidebar"] > div:first-child {{
+        width: 100%;
+        min-width: 0;
+    }}
+
+    [data-testid="stSidebar"][aria-expanded="false"] {{
+        width: 0 !important;
+        min-width: 0 !important;
+        max-width: 0 !important;
+        overflow: hidden !important;
     }}
 
     [data-testid="stSidebar"] .stSelectbox,

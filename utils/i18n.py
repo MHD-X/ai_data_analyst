@@ -88,6 +88,45 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "recent_operations": "آخر العمليات",
         "top_requests": "أكثر الطلبات تكراراً",
         "no_operations": "لا توجد عمليات مسجّلة بعد.",
+        "forecast.no_file": "ارفع ملفاً من الشريط الجانبي أولاً.",
+        "forecast.no_valid_date": "لم يُعثر على عمود تاريخ صالح في الملف.",
+        "forecast.date_column": "عمود التاريخ",
+        "forecast.metric": "المقياس",
+        "forecast.frequency": "التجميع",
+        "forecast.aggregate": "الدالة",
+        "forecast.dedupe": "إزالة التكرار حسب",
+        "forecast.horizon": "عدد الفترات القادمة",
+        "forecast.total_rows": "إجمالي الصفوف",
+        "forecast.valid_rows": "✅ صالحة للاستخدام",
+        "forecast.quarantined_rows": "🚫 معزولة",
+        "forecast.generate": "🔮 توليد التنبؤ",
+        "forecast.table": "جدول التنبؤ",
+        "forecast.download_csv": "⬇️ تنزيل CSV",
+        "forecast.model_comparison": "مقارنة النماذج (MAE — الأقل أفضل)",
+        "forecast.model": "النموذج المختار",
+        "forecast.next_period": "الفترة القادمة",
+        "forecast.history_periods": "عدد الفترات التاريخية",
+        "forecast.summary": "📌 الملخص التنفيذي بالعربية",
+        "forecast.data_quality_report": "🛡️ تقرير جودة البيانات والحجر الصحي",
+        "forecast.overview": "📊 النظرة العامة والتركيب",
+        "forecast.auto_analysis": "📊 تحليل البيانات التلقائي",
+        "forecast.no_valid_data": "الملف الحالي لا يحتوي على عمود تاريخ صالح أو عمود رقمي مناسب للتحليل.",
+        "forecast.date_options": "عمود التاريخ",
+        "forecast.value_options": "المقياس",
+        "forecast.freq_options": "التجميع",
+        "forecast.prediction_window": "فترة التنبؤ",
+        "forecast.empty_periods": "الفترات التي لا تحتوي سجلات",
+        "forecast.empty_periods_help": "مثال: أسبوع أُزيلت كل صفوفه بسبب الحجر الصحي. اختر «بيانات ناقصة» لتجنب اعتباره صفراً.",
+        "forecast.run_analysis": "🚀 إنشاء التحليل",
+        "forecast.analysis_error": "تعذّر إنشاء التحليل: {error}",
+        "forecast.no_anomalies": "لم تُرصد قيم شاذة في السلسلة التاريخية.",
+        "forecast.summary_panel": "### 🔮 التنبؤ والملخص التنفيذي",
+        "forecast.model_label": "النموذج",
+        "forecast.average_prediction": "متوسط التنبؤ",
+        "forecast.last_value": "آخر قيمة",
+        "forecast.anomalies": "الشواذ",
+        "forecast.audit_error": "تعذّر فحص جودة البيانات؛ التحليل تم على الملف كاملاً دون استبعاد أي صف.",
+        "forecast.data_quality_heading": "🛡️ تقرير جودة البيانات والحجر الصحي (Data Audit & Quarantine)",
         "auth.email": "البريد الإلكتروني",
         "auth.password": "كلمة المرور",
         "auth.display_name": "اسم العرض",
@@ -197,6 +236,51 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "recent_operations": "Recent operations",
         "top_requests": "Most frequent requests",
         "no_operations": "No operations recorded yet.",
+        "forecast.no_file": "Upload a file from the sidebar first.",
+        "forecast.no_valid_date": "No valid date column was found in the file.",
+        "forecast.date_column": "Date column",
+        "forecast.metric": "Metric",
+        "forecast.frequency": "Aggregation",
+        "forecast.aggregate": "Function",
+        "forecast.dedupe": "Remove duplicates by",
+        "forecast.horizon": "Number of future periods",
+        "forecast.total_rows": "Total rows",
+        "forecast.valid_rows": "✅ Valid for use",
+        "forecast.quarantined_rows": "🚫 Excluded",
+        "forecast.generate": "🔮 Generate forecast",
+        "forecast.table": "Forecast table",
+        "forecast.download_csv": "⬇️ Download CSV",
+        "forecast.model_comparison": "Model comparison (MAE — lower is better)",
+        "forecast.model": "Selected model",
+        "forecast.next_period": "Next period",
+        "forecast.history_periods": "Historical periods",
+        "forecast.summary": "📌 Executive summary",
+        "forecast.data_quality_report": "🛡️ Data quality and quarantine report",
+        "forecast.overview": "📊 Overview and structure",
+        "forecast.auto_analysis": "📊 Automatic data analysis",
+        "forecast.no_valid_data": "The current file does not contain a valid date column or a suitable numeric column for analysis.",
+        "forecast.date_options": "Date column",
+        "forecast.value_options": "Metric",
+        "forecast.freq_options": "Aggregation",
+        "forecast.prediction_window": "Prediction window",
+        "forecast.empty_periods": "Periods with no records",
+        "forecast.empty_periods_help": "Example: a week without records due to quarantine. Choose 'interpolate' to avoid treating it as zero.",
+        "forecast.empty_zero": "Treat as zero (no sales)",
+        "forecast.empty_interpolate": "Treat as missing data (linear interpolation)",
+        "forecast.dedupe_help": "Important if the file contains duplicate rows for the same record (such as linked certificates).",
+        "forecast.empty_zero": "Treat as zero (no sales)",
+        "forecast.empty_interpolate": "Treat as missing data (linear interpolation)",
+        "forecast.dedupe_help": "Important if the file contains duplicate rows for the same record (such as linked certificates).",
+        "forecast.run_analysis": "🚀 Run analysis",
+        "forecast.analysis_error": "Unable to generate the analysis: {error}",
+        "forecast.no_anomalies": "No anomalies were detected in the time series.",
+        "forecast.summary_panel": "### 🔮 Forecast and executive summary",
+        "forecast.model_label": "Model",
+        "forecast.average_prediction": "Average forecast",
+        "forecast.last_value": "Last value",
+        "forecast.anomalies": "Anomalies",
+        "forecast.audit_error": "Data quality checks could not be completed; the full file was used without excluding rows.",
+        "forecast.data_quality_heading": "🛡️ Data quality and quarantine report (Data Audit & Quarantine)",
         "auth.email": "Email",
         "auth.password": "Password",
         "auth.display_name": "Display name",
@@ -239,12 +323,12 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
 
 # ============ اللغة الحالية ============
 def get_lang() -> str:
-    """يعيد اللغة الحالية من session_state، أو الافتراضية من CONFIG."""
+    """Return the active language from either `lang` or `language` session keys."""
     lang = None
     try:
         import streamlit as st
 
-        lang = st.session_state.get("lang")
+        lang = st.session_state.get("language") or st.session_state.get("lang")
     except Exception:
         pass
     if lang in SUPPORTED_LANGS:
@@ -257,6 +341,20 @@ def get_lang() -> str:
     except Exception:
         pass
     return DEFAULT_LANG
+
+
+def set_language(lang: str | None) -> str:
+    """Persist the selected language in both supported session-state keys."""
+    if lang not in SUPPORTED_LANGS:
+        lang = DEFAULT_LANG
+    try:
+        import streamlit as st
+
+        st.session_state["lang"] = lang
+        st.session_state["language"] = lang
+    except Exception:
+        pass
+    return lang
 
 
 def is_rtl(lang: str | None = None) -> bool:

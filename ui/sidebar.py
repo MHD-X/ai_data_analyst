@@ -27,7 +27,7 @@ from utils.helpers import (
     hash_file,
     read_data_file,
 )
-from utils.i18n import SUPPORTED_LANGS, t
+from utils.i18n import SUPPORTED_LANGS, get_lang, t
 
 
 # ============================================================
@@ -83,12 +83,24 @@ def _clear_dataframe_from_state() -> None:
 # ============================================================
 # اختيار اللغة
 # ============================================================
+def _sync_language_state() -> None:
+    value = st.session_state.get("language") or st.session_state.get("lang")
+    if value in SUPPORTED_LANGS:
+        st.session_state["lang"] = value
+        st.session_state["language"] = value
+        st.rerun()
+
+
 def _render_language() -> None:
+    current_lang = get_lang()
+    choices = list(SUPPORTED_LANGS)
     st.selectbox(
         t("language"),
-        options=list(SUPPORTED_LANGS),
+        options=choices,
+        index=choices.index(current_lang) if current_lang in choices else 0,
         format_func=lambda code: SUPPORTED_LANGS[code],
-        key="lang",
+        key="language",
+        on_change=_sync_language_state,
     )
 
 
@@ -292,7 +304,7 @@ def _render_tools() -> None:
         st.caption(f"👤 {display_name}")
         if st.button(t("auth.logout"), use_container_width=True, key="logout_btn"):
             for key in list(ss.keys()):
-                if key != "lang":
+                if key not in {"lang", "language"}:
                     del ss[key]
             st.rerun()
 
