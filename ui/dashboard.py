@@ -128,7 +128,7 @@ def _render_statistics() -> None:
         user_id = (st.session_state.get("user") or {}).get("id")
         stats = get_memory().get_statistics(user_id=user_id)
     except Exception as exc:
-        st.warning(f"⚠️ تعذّر تحميل الإحصائيات: {exc}")
+        st.warning(t("stats_load_error", error=str(exc)))
         return
 
     c1, c2, c3, c4 = st.columns(4)
@@ -176,7 +176,7 @@ def _render_recent_operations() -> None:
         user_id = (st.session_state.get("user") or {}).get("id")
         ops = get_memory().list_operations(limit=10, user_id=user_id)
     except Exception as exc:
-        st.warning(f"⚠️ تعذّر تحميل العمليات: {exc}")
+        st.warning(t("ops_load_error", error=str(exc)))
         return
 
     if not ops:

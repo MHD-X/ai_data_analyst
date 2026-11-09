@@ -127,10 +127,30 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "forecast.empty_periods_help": "مثال: أسبوع أُزيلت كل صفوفه بسبب الحجر الصحي. اختر «بيانات ناقصة» لتجنب اعتباره صفراً.",
         "forecast.empty_zero": "اعتبرها صفراً (لا مبيعات)",
         "forecast.empty_interpolate": "اعتبرها بيانات ناقصة (استكمال خطي)",
+        "forecast.count_records": "عدد السجلات",
         "forecast.dedupe_help": "مهم لو الملف فيه صفوف مكررة لنفس السجل (مثل ربط الشهادات).",
+        "audit.total_rows": "إجمالي الصفوف",
+        "audit.valid_rows": "✅ صالحة للتحليل",
+        "audit.quarantined_rows": "🚫 معزولة",
+        "audit.warning_rows": "⚠️ تحذيرات",
+        "audit.no_issues": "لم يُكتشف أي مشكلة في الأعمدة الحرجة المختارة.",
+        "audit.no_quarantine": "لا توجد صفوف معزولة.",
+        "audit.review_quarantine": "هذه الصفوف لن تدخل التحليل. راجعها يدوياً وصحّحها في ملفك الأصلي ثم أعد رفعه.",
+        "audit.preview_rows": "معاينة أول {count} صف من {total}",
+        "audit.no_warnings": "لا توجد تحذيرات.",
+        "audit.warning_review": "صفوف تبقى صالحة للتحليل لكنها تستحق المراجعة (مثل المعرّفات المكررة).",
+        "audit.download_quarantine": "⬇️ تنزيل الصفوف المعزولة (CSV)",
+        "audit.row_number": "رقم الصف",
+        "audit.column": "العمود",
+        "audit.issue_type": "المشكلة",
+        "audit.detail": "التفصيل",
+        "audit.value": "القيمة",
+        "audit.summary_message": "لم يُحذف أو يُعدَّل أي صف، ولم تُعوَّض أي قيمة مفقودة: الصالح + المعزول = الإجمالي.",
         "forecast.run_analysis": "🚀 إنشاء التحليل",
         "forecast.analysis_error": "تعذّر إنشاء التحليل: {error}",
         "forecast.no_anomalies": "لم تُرصد قيم شاذة في السلسلة التاريخية.",
+        "stats_load_error": "⚠️ تعذّر تحميل الإحصائيات: {error}",
+        "ops_load_error": "⚠️ تعذّر تحميل العمليات: {error}",
         "forecast.summary_panel": "### 🔮 التنبؤ والملخص التنفيذي",
         "forecast.model_label": "النموذج",
         "forecast.average_prediction": "متوسط التنبؤ",
@@ -278,7 +298,25 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "forecast.empty_periods_help": "Example: a week without records due to quarantine. Choose 'interpolate' to avoid treating it as zero.",
         "forecast.empty_zero": "Treat as zero (no sales)",
         "forecast.empty_interpolate": "Treat as missing data (linear interpolation)",
+        "forecast.count_records": "Count records",
         "forecast.dedupe_help": "Important if the file contains duplicate rows for the same record (such as linked certificates).",
+        "audit.total_rows": "Total rows",
+        "audit.valid_rows": "✅ Valid for analysis",
+        "audit.quarantined_rows": "🚫 Quarantine",
+        "audit.warning_rows": "⚠️ Warnings",
+        "audit.no_issues": "No problems were detected in the selected critical columns.",
+        "audit.no_quarantine": "No quarantined rows.",
+        "audit.review_quarantine": "These rows will not enter the analysis. Review them manually and fix the source file before re-uploading.",
+        "audit.preview_rows": "Showing first {count} rows out of {total}",
+        "audit.no_warnings": "No warnings.",
+        "audit.warning_review": "Rows remain valid for analysis but deserve review (for example, duplicate IDs).",
+        "audit.download_quarantine": "⬇️ Download quarantined rows (CSV)",
+        "audit.row_number": "Row #",
+        "audit.column": "Column",
+        "audit.issue_type": "Issue",
+        "audit.detail": "Detail",
+        "audit.value": "Value",
+        "audit.summary_message": "No rows were removed or altered, and no missing values were filled: valid + quarantined = total.",
         "period_daily": "Daily",
         "period_weekly": "Weekly",
         "period_monthly": "Monthly",
@@ -290,6 +328,8 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "forecast.run_analysis": "🚀 Run analysis",
         "forecast.analysis_error": "Unable to generate the analysis: {error}",
         "forecast.no_anomalies": "No anomalies were detected in the time series.",
+        "stats_load_error": "⚠️ Failed to load statistics: {error}",
+        "ops_load_error": "⚠️ Failed to load operations: {error}",
         "forecast.summary_panel": "### 🔮 Forecast and executive summary",
         "forecast.model_label": "Model",
         "forecast.average_prediction": "Average forecast",
@@ -400,9 +440,16 @@ def is_rtl(lang: str | None = None) -> bool:
 
 
 def t(key: str, lang: str | None = None, **kwargs: Any) -> str:
-    """يترجم المفتاح. إن لم يوجد يرجع للإنجليزية ثم للمفتاح نفسه."""
-    lang = lang or get_lang()
-    text = TRANSLATIONS.get(lang, {}).get(key) or TRANSLATIONS["en"].get(key) or key
+    """Return the translated string for a key using the active session language."""
+    if lang is None:
+        try:
+            import streamlit as st
+
+            lang = st.session_state.get("language") or st.session_state.get("lang")
+        except Exception:
+            lang = None
+    resolved = normalize_language(lang or get_lang())
+    text = TRANSLATIONS.get(resolved, {}).get(key) or TRANSLATIONS["en"].get(key) or key
     if kwargs:
         try:
             return text.format(**kwargs)

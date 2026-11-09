@@ -42,6 +42,8 @@ def build_theme_css(lang: str | None = None) -> str:
 
     html, body {{
         margin: 0;
+        width: 100%;
+        max-width: 100%;
         overflow-x: hidden;
     }}
 
@@ -51,30 +53,24 @@ def build_theme_css(lang: str | None = None) -> str:
         font-family: {font_stack};
         direction: {direction};
         min-height: 100vh;
-        width: 100%;
-        max-width: 100%;
-        overflow-x: hidden;
-    }}
-
-    .stApp > div {{
-        width: 100%;
-    }}
-
-    .stApp [data-testid="stMain"] {{
         width: 100% !important;
         max-width: 100% !important;
-        overflow-x: hidden;
-        transition: margin-left 0.25s ease, width 0.25s ease, max-width 0.25s ease, padding 0.25s ease;
+        overflow-x: hidden !important;
     }}
 
-    .stApp .block-container {{
-        max-width: none !important;
-        width: min(100%, 1500px) !important;
-        padding-left: clamp(0.75rem, 2.2vw, 2rem) !important;
-        padding-right: clamp(0.75rem, 2.2vw, 2rem) !important;
-        padding-top: 2rem !important;
-        padding-bottom: 4rem !important;
+    .stApp > div, .stApp > section, .stApp [data-testid="stMain"] {{
+        width: 100% !important;
+        max-width: 100% !important;
+        min-width: 0 !important;
+    }}
+
+    .stApp .main, .stApp [data-testid="stMain"], .stApp .block-container {{
+        width: 100% !important;
+        max-width: 100% !important;
+        padding-left: clamp(0.75rem, 2vw, 2rem) !important;
+        padding-right: clamp(0.75rem, 2vw, 2rem) !important;
         margin: 0 auto !important;
+        overflow-x: hidden !important;
         transition: width 0.25s ease, max-width 0.25s ease, padding 0.25s ease;
     }}
 
@@ -83,11 +79,11 @@ def build_theme_css(lang: str | None = None) -> str:
         border-right: 1px solid var(--between-border);
         border-left: 1px solid var(--between-border);
         box-shadow: inset -1px 0 0 rgba(255,255,255,0.04);
-        width: 22rem !important;
-        min-width: 18rem !important;
+        width: 20rem !important;
+        min-width: 15rem !important;
         max-width: 24rem !important;
-        transition: width 0.25s ease, min-width 0.25s ease, max-width 0.25s ease, opacity 0.2s ease, transform 0.2s ease;
-        overflow-x: hidden;
+        transition: width 0.25s ease, min-width 0.25s ease, max-width 0.25s ease, opacity 0.2s ease;
+        overflow-x: hidden !important;
     }}
 
     [data-testid="stSidebar"] > div:first-child {{

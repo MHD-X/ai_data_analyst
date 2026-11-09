@@ -18,7 +18,7 @@ from core.forecasting import (
 )
 from utils.i18n import get_lang, t
 
-_COUNT = "(عدد السجلات)"
+_COUNT = "__count__"
 _NONE = "—"
 
 
@@ -48,8 +48,13 @@ def render_forecast() -> None:
     )
 
     c1, c2, c3 = st.columns(3)
+    count_label = t("forecast.count_records")
     date_col = c1.selectbox(t("forecast.date_column"), date_cols)
-    value_opt = c2.selectbox(t("forecast.metric"), [_COUNT, *numeric_cols])
+    value_opt = c2.selectbox(
+        t("forecast.metric"),
+        [_COUNT, *numeric_cols],
+        format_func=lambda code: count_label if code == _COUNT else code,
+    )
     freq = c3.selectbox(t("forecast.frequency"), list(FREQ_LABELS), format_func=_freq_label, index=1)
 
     c4, c5, c6 = st.columns(3)
