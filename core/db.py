@@ -298,15 +298,15 @@ def ensure_user_scoping_columns(conn: Any, backend: str | None = None) -> None:
     
     if backend == "postgresql":
         for table in tables:
-            # استخدام علامة التعويض المناسبة لنظام الترجمة لديك (غالباً ?)
+            # استخدام f-string لاسم الجدول وباراميتر واحد فقط لاسم العمود
             row = conn.execute(
-                """
+                f"""
                 SELECT 1
                 FROM information_schema.columns
-                WHERE table_name = ? AND column_name = ?
+                WHERE table_name = '{table}' AND column_name = %s
                 LIMIT 1
                 """,
-                (table, "user_id"),
+                ("user_id",),
             ).fetchone()
             if row is None:
                 conn.execute(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS user_id BIGINT NOT NULL DEFAULT 0;")
@@ -319,7 +319,6 @@ def ensure_user_scoping_columns(conn: Any, backend: str | None = None) -> None:
         ]
         if "user_id" not in columns:
             conn.execute(f"ALTER TABLE {table} ADD COLUMN user_id INTEGER NOT NULL DEFAULT 0")
-
 # ============================================================
 # ترجمة الاستعلامات
 # ============================================================
