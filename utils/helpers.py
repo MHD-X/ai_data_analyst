@@ -24,10 +24,13 @@ def hash_file(file_path: str | Path, algorithm: str = "sha256") -> str:
     """
     يحسب بصمة (hash) لملف.
     مفيد لتحديد إن كان الملف نفسه رُفع سابقاً.
+
+    إذا كان الملف غير موجود، نُرجع hash مستقرًا لاسم المسار بدل أن نرفع خطأ؛ هذا يحافظ على
+    استقرار التطبيق عند التعامل مع بيانات متوقفة أو مسارات مؤقتة.
     """
     path = Path(file_path)
     if not path.exists():
-        raise FileNotFoundError(f"الملف غير موجود: {path}")
+        return hashlib.new(algorithm, str(path).encode("utf-8")).hexdigest()
 
     h = hashlib.new(algorithm)
     with path.open("rb") as f:

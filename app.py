@@ -1,6 +1,4 @@
-"""
-app.py — نقطة الدخول الرئيسية لـ Streamlit
-"""
+"""app.py — secure Streamlit application entry point."""
 from __future__ import annotations
 
 import importlib
@@ -14,6 +12,7 @@ ROOT = Path(__file__).resolve().parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+
 def _force_utf8_std_streams() -> None:
     for name in ("stdout", "stderr"):
         stream = getattr(sys, name, None)
@@ -25,7 +24,8 @@ def _force_utf8_std_streams() -> None:
                 continue
             if hasattr(stream, "buffer"):
                 setattr(
-                    sys, name,
+                    sys,
+                    name,
                     io.TextIOWrapper(
                         stream.buffer,
                         encoding="utf-8",
@@ -36,33 +36,23 @@ def _force_utf8_std_streams() -> None:
         except Exception:
             pass
 
+
 _force_utf8_std_streams()
 
 import streamlit as st
+
 from config import CONFIG, get_setting, validate_config
-
-# 1. أمر إعداد الصفحة يجب أن يكون الأول مطلقاً
-st.set_page_config(
-    page_title=CONFIG.ui.page_title,
-    page_icon=CONFIG.ui.page_icon,
-    layout=CONFIG.ui.layout,
-    initial_sidebar_state="expanded",
-)
-
-from core.auth import AuthStore  # noqa: E402
-from ui import ensure_session, init_state  # noqa: E402
-from ui.theme import apply_theme  # noqa: E402
-from utils.i18n import SUPPORTED_LANGS, get_lang, rtl_css, t  # noqa: E402
+from core.auth import AuthStore, is_authenticated, require_role, session_logout
+from ui import ensure_session, init_state
+from ui.theme import apply_theme
+from utils.i18n import SUPPORTED_LANGS, get_lang, rtl_css, t
 
 logger = logging.getLogger(__name__)
 
 _FORECAST_TAB_LABELS = {"ar": "🔮 التنبؤات", "en": "🔮 Forecast"}
 
-def _render(
-    module_name: str,
-    func_name: str,
-    fallback: Callable[[], None] | None = None,
-) -> None:
+
+def _render(module_name: str, func_name: str, fallback: Callable[[], None] | None = None) -> None:
     try:
         module = importlib.import_module(module_name)
     except Exception as exc:
@@ -94,20 +84,24 @@ def _admin_bootstrap_notice() -> None:
     reason = st.session_state.get("admin_bootstrap_error")
     if not reason:
         return
-    if reason == "not_configured":
-        st.warning(t("auth.admin_bootstrap_missing"))
-    elif reason == "password_policy":
-        st.warning(t("auth.admin_bootstrap_failed_password_policy"))
-    elif reason == "invalid_email":
-        st.warning(t("auth.admin_bootstrap_failed_invalid_email"))
-    elif reason == "db_error":
-        st.warning(t("auth.admin_bootstrap_failed_db_error"))
-    else:
-        st.warning(t("auth.admin_bootstrap_failed", reason=reason))
+
+    notices = {
+        "not_configured": t("auth.admin_bootstrap_missing"),
+        "password_policy": t("auth.admin_bootstrap_failed_password_policy"),
+        "invalid_email": t("auth.admin_bootstrap_failed_invalid_email"),
+        "db_error": t("auth.admin_bootstrap_failed_db_error"),
+    }
+    st.warning(notices.get(reason, t("auth.admin_bootstrap_failed", reason=reason)))
+
+
+def _logout_current_user() -> None:
+    session_logout(st.session_state)
+    st.rerun()
 
 
 def main() -> None:
     init_state()
+    st.session_state.setdefault("lang", CONFIG.ui.default_language)
 
     try:
         bootstrap_result = AuthStore().bootstrap_admin()
@@ -124,21 +118,29 @@ def main() -> None:
     apply_theme(get_lang())
 
     user = st.session_state.get("user")
-    if not user:
+    if not is_authenticated(st.session_state, user):
         _admin_bootstrap_notice()
         from ui.auth_page import render_auth_page
+
         render_auth_page()
         st.stop()
 
     if user.get("must_change_password"):
         from ui.auth_page import render_password_change_required
+
         render_password_change_required(user)
+        st.stop()
+
+    if not require_role(["user", "admin"], st.session_state, user):
+        st.warning("Access denied")
+        session_logout(st.session_state)
         st.stop()
 
     try:
         ensure_session()
     except Exception as exc:
         st.error(t("db_error"))
+        logger.exception("Session startup failed")
         st.exception(exc)
         st.stop()
 
@@ -155,9 +157,8 @@ def main() -> None:
             st.warning(err)
 
     forecast_label = _FORECAST_TAB_LABELS.get(get_lang(), _FORECAST_TAB_LABELS["en"])
-    tab_chat, tab_forecast, tab_dash = st.tabs(
-        [t("tab_chat"), forecast_label, t("tab_dashboard")]
-    )
+    tab_chat, tab_forecast, tab_dash = st.tabs([t("tab_chat"), forecast_label, t("tab_dashboard")])
+
     with tab_chat:
         _render("ui.chat", "render_chat")
     with tab_forecast:

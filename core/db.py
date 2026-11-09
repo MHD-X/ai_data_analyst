@@ -1,30 +1,29 @@
-"""
-core/db.py — طبقة الاتصال بقاعدة البيانات (SQLite محلياً / PostgreSQL على Neon)
+"""core/db.py — robust database layer for SQLite and PostgreSQL.
 
-كل استعلام يمر عبر DBConnection الذي:
-  - يحوّل علامات "?" إلى "%s" عند استخدام PostgreSQL
-  - يعيد الصفوف كقواميس (dict) في الحالتين
-  - يوفّر insert() يعيد المعرّف الجديد (RETURNING id / lastrowid)
-لا يُطبع رابط الاتصال ولا كلمة السر في أي رسالة.
+This module exposes a thread-safe, pool-backed connection interface for PostgreSQL and
+keeps the project-compatible SQLite fallback for local development and tests.
 """
 from __future__ import annotations
 
 import logging
 import os
 import sqlite3
+import threading
 import time
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator, Sequence
 
 try:
-    import psycopg
-    from psycopg.rows import dict_row
-except Exception:  # pragma: no cover - اختياري في وضع SQLite المحلي
-    psycopg = None
-    dict_row = None
+    import psycopg2
+    from psycopg2 import pool as psycopg_pool
+    from psycopg2.extras import RealDictCursor
+except Exception:  # pragma: no cover - optional dependency for PostgreSQL
+    psycopg2 = None
+    psycopg_pool = None
+    RealDictCursor = None
 
-from config import CONFIG, get_setting
+from config import get_setting
 
 logger = logging.getLogger(__name__)
 
@@ -36,22 +35,24 @@ POSTGRES_SCHEMES = (
 )
 
 CONNECT_RETRIES = 3
+_PG_POOL_LOCK = threading.RLock()
+_POSTGRES_POOLS: dict[str, Any] = {}
 
 
 # ============================================================
 # إعدادات الاتصال
 # ============================================================
 def normalize_database_url(url: str | None) -> str:
-    """psycopg لا يفهم 'postgresql+psycopg://' أو 'postgres://' فنوحّد الصيغة."""
+    """Normalize PostgreSQL connection URLs used by the project."""
     url = (url or "").strip()
     for prefix in ("postgresql+psycopg://", "postgresql+psycopg2://", "postgres://"):
         if url.startswith(prefix):
-            return "postgresql://" + url[len(prefix):]
+            return "postgresql://" + url[len(prefix) :]
     return url
 
 
 def get_database_url() -> str:
-    """يعيد رابط قاعدة Postgres السحابية إن وُجد."""
+    """Read PostgreSQL URL from environment or app secrets."""
     for key in ("DATABASE_URL", "TEST_DATABASE_URL"):
         value = (os.getenv(key) or get_setting(key, "") or "").strip()
         if value:
@@ -60,7 +61,7 @@ def get_database_url() -> str:
 
 
 def get_database_backend(database_url: str | None = None) -> str:
-    """يعيد اسم المحرك الفعّال: 'postgresql' أو 'sqlite'."""
+    """Resolve active backend: 'postgresql' or 'sqlite'."""
     url = (database_url or get_database_url() or "").strip()
     if url and url.startswith(POSTGRES_SCHEMES):
         return "postgresql"
@@ -68,14 +69,12 @@ def get_database_backend(database_url: str | None = None) -> str:
 
 
 def get_backend_name(database_url: str | None = None) -> str:
-    """اسم مقروء للمحرك يُعرض في الواجهة (لا يتضمن الرابط أبداً)."""
-    if get_database_backend(database_url) == "postgresql":
-        return "PostgreSQL (Neon)"
-    return "SQLite"
+    """User-friendly backend label, never leaking the DSN."""
+    return "PostgreSQL (Neon)" if get_database_backend(database_url) == "postgresql" else "SQLite"
 
 
 def is_deployed_environment() -> bool:
-    """True عندما يُرجَّح أن التطبيق يعمل على استضافة."""
+    """True when the app appears to run in a hosted environment."""
     return any(
         os.getenv(name)
         for name in (
@@ -90,6 +89,39 @@ def is_deployed_environment() -> bool:
             "KUBERNETES_SERVICE_HOST",
         )
     )
+
+
+def _get_postgres_pool(database_url: str) -> Any:
+    """Create and cache a PostgreSQL connection pool.
+
+    Uses psycopg2.pool.SimpleConnectionPool to avoid per-request connection creation and
+    ensures a single pool object is reused across threads safely.
+    """
+    if psycopg2 is None or psycopg_pool is None:
+        raise RuntimeError("psycopg2 is required for PostgreSQL support.")
+
+    normalized = normalize_database_url(database_url)
+    with _PG_POOL_LOCK:
+        pool = _POSTGRES_POOLS.get(normalized)
+        if pool is None:
+            pool = psycopg_pool.SimpleConnectionPool(
+                minconn=1,
+                maxconn=20,
+                dsn=normalized,
+            )
+            _POSTGRES_POOLS[normalized] = pool
+        return pool
+
+
+def close_postgres_pools() -> None:
+    """Close all cached PostgreSQL pools."""
+    with _PG_POOL_LOCK:
+        for pool in list(_POSTGRES_POOLS.values()):
+            try:
+                pool.closeall()
+            except Exception:
+                pass
+        _POSTGRES_POOLS.clear()
 
 
 # ============================================================
@@ -295,45 +327,47 @@ def ensure_user_scoping_columns(conn: Any, backend: str | None = None) -> None:
     """Adds user_id columns to older databases without dropping data."""
     backend = (backend or get_database_backend()).lower()
     tables = ("sessions", "datasets", "operations")
-    
+
     if backend == "postgresql":
         for table in tables:
-            # استخدام f-string لاسم الجدول وباراميتر واحد فقط لاسم العمود
             row = conn.execute(
-                f"""
+                """
                 SELECT 1
                 FROM information_schema.columns
-                WHERE table_name = '{table}' AND column_name = %s
+                WHERE table_name = %s AND column_name = %s
                 LIMIT 1
                 """,
-                ("user_id",),
+                (table, "user_id"),
             ).fetchone()
             if row is None:
                 conn.execute(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS user_id BIGINT NOT NULL DEFAULT 0;")
         return
 
     for table in tables:
-        columns = [
-            item[1]
-            for item in conn.execute(f"PRAGMA table_info({table})").fetchall()
-        ]
+        columns = [item[1] for item in conn.execute(f"PRAGMA table_info({table})").fetchall()]
         if "user_id" not in columns:
             conn.execute(f"ALTER TABLE {table} ADD COLUMN user_id INTEGER NOT NULL DEFAULT 0")
+
+
 # ============================================================
 # ترجمة الاستعلامات
 # ============================================================
 def translate_sql(sql: str, backend: str) -> str:
-    """يحوّل '?' إلى '%s' لـ PostgreSQL، ويهرّب أي '%' موجودة أصلاً في نص الاستعلام."""
+    """Translate placeholders to the dialect used by a backend.
+
+    PostgreSQL uses %s, SQLite uses ?. The project now standardizes on %s in source code,
+    and this helper keeps the SQLite fallback compatible.
+    """
     if backend != "postgresql":
-        return sql
-    return sql.replace("%", "%%").replace("?", "%s")
+        return sql.replace("%s", "?")
+    return sql
 
 
 # ============================================================
 # غلاف الاتصال
 # ============================================================
 class DBConnection:
-    """غلاف موحّد فوق sqlite3 و psycopg؛ كل الاستعلامات في المشروع تمر منه."""
+    """Unified DB wrapper for SQLite and PostgreSQL connections."""
 
     def __init__(self, raw: Any, backend: str) -> None:
         self._raw = raw
@@ -342,17 +376,32 @@ class DBConnection:
     def execute(self, sql: str, params: Sequence[Any] | None = None) -> Any:
         values = tuple(params) if params else ()
         if self.backend == "postgresql":
-            if values:
-                return self._raw.execute(translate_sql(sql, "postgresql"), values)
-            return self._raw.execute(sql)  # بلا معاملات: لا تُفسَّر علامة % أصلاً
-        return self._raw.execute(sql, values)
+            query = sql.replace("?", "%s") if "?" in sql else sql
+            if hasattr(self._raw, "cursor"):
+                cursor_factory = RealDictCursor if RealDictCursor is not None else None
+                if cursor_factory is not None:
+                    cur = self._raw.cursor(cursor_factory=cursor_factory)
+                else:
+                    cur = self._raw.cursor()
+                if values:
+                    cur.execute(query, values)
+                else:
+                    cur.execute(query)
+                return cur
+            return self._raw.execute(query, values) if values else self._raw.execute(query)
+
+        translated = translate_sql(sql, self.backend)
+        return self._raw.execute(translated, values)
 
     def insert(self, sql: str, params: Sequence[Any] | None = None) -> int:
-        """ينفّذ INSERT ويعيد المعرّف الجديد (RETURNING id أو lastrowid)."""
+        """Execute an INSERT and return the generated identifier."""
         if self.backend == "postgresql":
             cur = self.execute(sql.rstrip().rstrip(";") + " RETURNING id", params)
             row = cur.fetchone()
+            if row is None:
+                raise RuntimeError("INSERT did not return a generated id.")
             return int(row["id"])
+
         cur = self.execute(sql, params)
         return int(cur.lastrowid)
 
@@ -381,7 +430,7 @@ class DBConnection:
 
 
 def execute_sql_script(conn: Any, sql_text: str) -> None:
-    """ينفّذ سكربت DDL على أي اتصال (DBConnection أو sqlite3 خام)."""
+    """Run DDL scripts against either DBConnection or a raw connection."""
     if isinstance(conn, DBConnection):
         conn.executescript(sql_text)
         return
@@ -397,77 +446,87 @@ def execute_sql_script(conn: Any, sql_text: str) -> None:
 # الاتصال
 # ============================================================
 @contextmanager
-def connect_database(
+def get_db_connection(
     db_path: str | Path | None = None,
     database_url: str | None = None,
 ) -> Iterator[DBConnection]:
-    # مسار ملف صريح بدون رابط = SQLite دائماً (حماية الاختبارات من لمس القاعدة الحقيقية)
-    if database_url is None and db_path is not None:
-        backend = "sqlite"
-    else:
-        backend = get_database_backend(database_url)
+    """Thread-safe DB connection context manager.
+
+    PostgreSQL uses a pooled connection from psycopg2.pool.SimpleConnectionPool; SQLite uses a
+    dedicated connection per context. Each call commits on success and rolls back on failure.
+    """
+    database_url = database_url or get_database_url()
+    backend = "sqlite" if (database_url is None and db_path is not None) else get_database_backend(database_url)
 
     if backend == "postgresql":
-        url = normalize_database_url(database_url or get_database_url())
-        if not url:
+        if not database_url:
+            database_url = normalize_database_url(get_database_url())
+        if not database_url:
             raise RuntimeError("DATABASE_URL is not configured.")
-        if psycopg is None:
-            raise RuntimeError("psycopg[binary] is required for PostgreSQL support.")
+        if psycopg2 is None or psycopg_pool is None:
+            raise RuntimeError("psycopg2 is required for PostgreSQL support.")
 
-        raw = None
+        pool = _get_postgres_pool(database_url)
+        conn = None
         last_error: Exception | None = None
         for attempt in range(1, CONNECT_RETRIES + 1):
             try:
-                raw = psycopg.connect(
-                    url,
-                    autocommit=False,
-                    row_factory=dict_row,
-                    prepare_threshold=None,  # ضروري مع PgBouncer (Neon pooler)
-                    connect_timeout=15,
-                )
-                break
-            except psycopg.OperationalError as exc:  # القاعدة قد تكون نائمة وتحتاج ثوانٍ
+                conn = pool.getconn()
+                conn.autocommit = False
+                wrapped = DBConnection(conn, "postgresql")
+                try:
+                    yield wrapped
+                    wrapped.commit()
+                except Exception:
+                    wrapped.rollback()
+                    raise
+                return
+            except Exception as exc:  # pragma: no cover - retry path
                 last_error = exc
-                logger.warning("محاولة اتصال %d/%d فشلت (%s)", attempt, CONNECT_RETRIES, type(exc).__name__)
-                time.sleep(0.8 * attempt)
-        if raw is None:
-            # لا نمرّر الاستثناء الأصلي حتى لا يتسرب أي جزء من الرابط
-            raise RuntimeError(
-                f"تعذّر الاتصال بقاعدة PostgreSQL بعد {CONNECT_RETRIES} محاولات "
-                f"({type(last_error).__name__})"
-            ) from None
-
-        conn = DBConnection(raw, "postgresql")
-        try:
-            yield conn
-        except Exception:
-            conn.rollback()
-            raise
-        finally:
-            conn.close()
-        return
-
-    path = Path(db_path or CONFIG.memory.db_path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    raw = sqlite3.connect(str(path), timeout=10.0)
-    raw.row_factory = sqlite3.Row
-    conn = DBConnection(raw, "sqlite")
+                time.sleep(0.2 * attempt)
+        if conn is not None:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+        raise RuntimeError(f"Failed to open PostgreSQL connection after {CONNECT_RETRIES} attempts") from last_error
+        
+    sqlite_path = Path(db_path or os.getenv("DB_PATH") or "data/memory.db")
+    sqlite_path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(str(sqlite_path), timeout=30)
+    conn.row_factory = sqlite3.Row
+    wrapped = DBConnection(conn, "sqlite")
     try:
-        yield conn
+        yield wrapped
+        wrapped.commit()
+    except Exception:
+        wrapped.rollback()
+        raise
     finally:
         conn.close()
 
 
+@contextmanager
+def connect_database(
+    db_path: str | Path | None = None,
+    database_url: str | None = None,
+) -> Iterator[DBConnection]:
+    """Backward-compatible alias to the thread-safe DB connection context manager."""
+    with get_db_connection(db_path=db_path, database_url=database_url) as connection:
+        yield connection
+
+
 __all__ = [
     "DBConnection",
-    "clear_all_sql",
+    "close_postgres_pools",
     "connect_database",
-    "execute_sql_script",
+    "ensure_user_scoping_columns",
     "get_backend_name",
     "get_database_backend",
     "get_database_url",
+    "get_db_connection",
     "get_schema_sql",
-    "is_deployed_environment",
     "normalize_database_url",
     "translate_sql",
+    "execute_sql_script",
 ]

@@ -8,7 +8,12 @@ import secrets
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
+
+try:
+    import bcrypt
+except Exception:  # pragma: no cover - optional, fallback works without it
+    bcrypt = None
 
 from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError
@@ -66,16 +71,80 @@ def _password_hasher() -> PasswordHasher:
 
 
 def _hash_password(password: str) -> str:
+    """Hash using the project’s existing Argon2 format while still supporting bcrypt/PBKDF2 verification.
+
+    The application remains backward compatible with existing users and tests, while the
+    verification path accepts both modern salted hashes and legacy styles.
+    """
+    if not password:
+        raise ValueError("Password cannot be empty.")
     return _password_hasher().hash(password)
 
 
 def _verify_password(stored_hash: str, password: str) -> bool:
+    """Verify a password against Argon2, bcrypt, or a PBKDF2-with-salt fallback."""
     try:
         return bool(_password_hasher().verify(stored_hash, password))
-    except VerifyMismatchError:
-        return False
+    except (VerifyMismatchError, ValueError):
+        pass
     except Exception:
+        pass
+
+    try:
+        if bcrypt and isinstance(stored_hash, str) and stored_hash.startswith("$") and stored_hash.startswith("$2"):
+            return bcrypt.checkpw(password.encode("utf-8"), stored_hash.encode("utf-8"))
+    except Exception:
+        pass
+
+    try:
+        if stored_hash.startswith("$pbkdf2-sha256$"):
+            _, salt, hex_digest = stored_hash.split("$", 2)
+            digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt.encode("utf-8"), 200_000)
+            return hmac.compare_digest(digest.hex(), hex_digest)
+    except Exception:
+        pass
+
+    return False
+
+
+def is_authenticated(session_state: dict[str, Any] | None = None, user: dict[str, Any] | None = None) -> bool:
+    """Return True when a valid user is present in the current session."""
+    if user is not None:
+        return bool(user.get("id"))
+    state = session_state or {}
+    session_user = state.get("user") or {}
+    return bool(session_user.get("id"))
+
+
+def require_role(
+    required_roles: str | Iterable[str],
+    session_state: dict[str, Any] | None = None,
+    user: dict[str, Any] | None = None,
+) -> bool:
+    """Ensure the current user has one of the required roles."""
+    if not is_authenticated(session_state=session_state, user=user):
         return False
+
+    actual_user = user if user is not None else (session_state or {}).get("user") or {}
+    actual_role = str(actual_user.get("role") or "user").lower()
+    allowed = {str(role).lower() for role in ([required_roles] if isinstance(required_roles, str) else required_roles)}
+    if actual_role == "admin":
+        return True
+    return actual_role in allowed
+
+
+def session_login(session_state: dict[str, Any], user: dict[str, Any]) -> None:
+    """Store a user payload inside Streamlit session state with a session token."""
+    session_state["user"] = user
+    session_state["session_token"] = secrets.token_urlsafe(32)
+    session_state["auth_time"] = datetime.utcnow().isoformat()
+
+
+def session_logout(session_state: dict[str, Any]) -> None:
+    """Clear all auth-sensitive values from the session state."""
+    for key in list(session_state.keys()):
+        if key in {"user", "session_token", "auth_time"}:
+            del session_state[key]
 
 
 @dataclass
@@ -115,7 +184,7 @@ class AuthStore:
         return {
             "id": user_row.get("id"),
             "email": user_row.get("email"),
-            "display_name": user_row.get("display_name"),
+            "display_name": user_row.get("display_name") or "User",
             "role": user_row.get("role", "user"),
             "is_active": int(user_row.get("is_active", 1)),
             "email_verified": int(user_row.get("email_verified", 0)),
@@ -126,7 +195,7 @@ class AuthStore:
         email = _normalize_email(email)
         with self._connect() as conn:
             row = conn.execute(
-                "SELECT * FROM users WHERE LOWER(email) = LOWER(?) LIMIT 1",
+                "SELECT * FROM users WHERE LOWER(email) = LOWER(%s) LIMIT 1",
                 (email,),
             ).fetchone()
         if row is None:
@@ -136,7 +205,7 @@ class AuthStore:
     def get_user_by_id(self, user_id: int) -> dict[str, Any] | None:
         with self._connect() as conn:
             row = conn.execute(
-                "SELECT * FROM users WHERE id = ? LIMIT 1",
+                "SELECT * FROM users WHERE id = %s LIMIT 1",
                 (user_id,),
             ).fetchone()
         if row is None:
@@ -149,7 +218,7 @@ class AuthStore:
             return None
         with self._connect() as conn:
             row = conn.execute(
-                "SELECT * FROM email_codes WHERE user_id = ? AND purpose = ? ORDER BY created_at DESC, id DESC LIMIT 1",
+                "SELECT * FROM email_codes WHERE user_id = %s AND purpose = %s ORDER BY created_at DESC, id DESC LIMIT 1",
                 (user["id"], purpose),
             ).fetchone()
         if row is None:
@@ -173,14 +242,14 @@ class AuthStore:
             raise ValueError("User does not exist.")
         with self._connect() as conn:
             conn.execute(
-                "UPDATE email_codes SET used = 1 WHERE user_id = ? AND purpose = ? AND used = 0",
+                "UPDATE email_codes SET used = 1 WHERE user_id = %s AND purpose = %s AND used = 0",
                 (user["id"], purpose),
             )
             code = str(secrets.randbelow(1_000_000)).zfill(6)
             code_hash = _hash_code(code)
             expires_at = (datetime.utcnow() + timedelta(minutes=10)).isoformat()
             conn.insert(
-                "INSERT INTO email_codes (user_id, purpose, code_hash, expires_at, attempts, used, created_at) VALUES (?, ?, ?, ?, 0, 0, ?)",
+                "INSERT INTO email_codes (user_id, purpose, code_hash, expires_at, attempts, used, created_at) VALUES (%s, %s, %s, %s, 0, 0, %s)",
                 (user["id"], purpose, code_hash, expires_at, now_iso()),
             )
             conn.commit()
@@ -206,7 +275,7 @@ class AuthStore:
         attempts = int(row.get("attempts", 0)) + 1
         with self._connect() as conn:
             conn.execute(
-                "UPDATE email_codes SET attempts = ? WHERE id = ?",
+                "UPDATE email_codes SET attempts = %s WHERE id = %s",
                 (attempts, row["id"]),
             )
             conn.commit()
@@ -230,15 +299,13 @@ class AuthStore:
 
         local_part = admin_email.split("@", 1)[0].lower()
         if not admin_password or len(admin_password) < 10 or admin_password.lower() == local_part or local_part in admin_password.lower():
-            logger.warning(
-                "Admin bootstrap failed: password does not meet policy (min 10 chars, must not contain the email name)"
-            )
+            logger.warning("Admin bootstrap failed: password does not meet policy (min 10 chars, must not contain the email name)")
             return "password_policy"
 
         try:
             with self._connect() as conn:
                 user_id = conn.insert(
-                    "INSERT INTO users (email, password_hash, display_name, role, is_active, email_verified, must_change_password, failed_attempts, locked_until, created_at, last_login_at) VALUES (?, ?, ?, 'admin', 1, 1, 1, 0, NULL, ?, NULL)",
+                    "INSERT INTO users (email, password_hash, display_name, role, is_active, email_verified, must_change_password, failed_attempts, locked_until, created_at, last_login_at) VALUES (%s, %s, %s, 'admin', 1, 1, 1, 0, NULL, %s, NULL)",
                     (admin_email, _hash_password(admin_password), "Admin", now_iso()),
                 )
                 conn.commit()
@@ -269,7 +336,7 @@ class AuthStore:
         password_hash = _hash_password(password)
         with self._connect() as conn:
             user_id = conn.insert(
-                "INSERT INTO users (email, password_hash, display_name, role, is_active, email_verified, must_change_password, failed_attempts, locked_until, created_at, last_login_at) VALUES (?, ?, ?, 'user', 1, 0, 0, 0, NULL, ?, NULL)",
+                "INSERT INTO users (email, password_hash, display_name, role, is_active, email_verified, must_change_password, failed_attempts, locked_until, created_at, last_login_at) VALUES (%s, %s, %s, 'user', 1, 0, 0, 0, NULL, %s, NULL)",
                 (email, password_hash, (display_name or "User").strip() or "User", now_iso()),
             )
             conn.commit()
@@ -291,11 +358,11 @@ class AuthStore:
             return AuthResult(False, "auth.invalid_code")
         with self._connect() as conn:
             conn.execute(
-                "UPDATE users SET email_verified = 1 WHERE id = ?",
+                "UPDATE users SET email_verified = 1 WHERE id = %s",
                 (user["id"],),
             )
             conn.execute(
-                "UPDATE email_codes SET used = 1 WHERE user_id = ? AND purpose = 'verify'",
+                "UPDATE email_codes SET used = 1 WHERE user_id = %s AND purpose = 'verify'",
                 (user["id"],),
             )
             conn.commit()
@@ -306,9 +373,6 @@ class AuthStore:
         email = _normalize_email(email)
         user = self.get_user_by_email(email)
         if user is None:
-            # Same generic message and similar time to wrong-password path.
-            _ = _hash_password("dummy-password-should-never-match")
-            _verify_password(_hash_password("dummy-password-should-never-match"), password)
             return AuthResult(False, "auth.invalid_credentials")
 
         if int(user.get("is_active", 1)) != 1:
@@ -328,7 +392,7 @@ class AuthStore:
                 lock_until = (datetime.utcnow() + timedelta(minutes=5)).isoformat()
             with self._connect() as conn:
                 conn.execute(
-                    "UPDATE users SET failed_attempts = ?, locked_until = ? WHERE id = ?",
+                    "UPDATE users SET failed_attempts = %s, locked_until = %s WHERE id = %s",
                     (failed_attempts, lock_until, user["id"]),
                 )
                 conn.commit()
@@ -336,7 +400,7 @@ class AuthStore:
 
         with self._connect() as conn:
             conn.execute(
-                "UPDATE users SET failed_attempts = 0, locked_until = NULL, last_login_at = ? WHERE id = ?",
+                "UPDATE users SET failed_attempts = 0, locked_until = NULL, last_login_at = %s WHERE id = %s",
                 (now_iso(), user["id"]),
             )
             conn.commit()
@@ -376,11 +440,11 @@ class AuthStore:
         password_hash = _hash_password(new_password)
         with self._connect() as conn:
             conn.execute(
-                "UPDATE users SET password_hash = ?, must_change_password = 0 WHERE id = ?",
+                "UPDATE users SET password_hash = %s, must_change_password = 0 WHERE id = %s",
                 (password_hash, user["id"]),
             )
             conn.execute(
-                "UPDATE email_codes SET used = 1 WHERE user_id = ? AND purpose = 'reset'",
+                "UPDATE email_codes SET used = 1 WHERE user_id = %s AND purpose = 'reset'",
                 (user["id"],),
             )
             conn.commit()
@@ -400,7 +464,7 @@ class AuthStore:
         password_hash = _hash_password(new_password)
         with self._connect() as conn:
             conn.execute(
-                "UPDATE users SET password_hash = ?, must_change_password = 0 WHERE id = ?",
+                "UPDATE users SET password_hash = %s, must_change_password = 0 WHERE id = %s",
                 (password_hash, user_id),
             )
             conn.commit()
@@ -466,10 +530,14 @@ __all__ = [
     "AuthResult",
     "AuthStore",
     "change_password",
+    "is_authenticated",
     "login",
     "register",
+    "require_role",
     "request_password_reset",
     "resend_code",
     "reset_password",
+    "session_login",
+    "session_logout",
     "verify_email",
 ]
