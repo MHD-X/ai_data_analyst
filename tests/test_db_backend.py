@@ -1,4 +1,4 @@
-from core.db import get_database_backend, get_database_url, is_deployed_environment
+from core.db import DBConnection, get_database_backend, get_database_url, is_deployed_environment
 from core.memory import MemoryStore
 
 
@@ -21,6 +21,35 @@ def test_memory_store_exposes_backend_name(monkeypatch, tmp_path):
     mem = MemoryStore(db_path=tmp_path / "memory.db")
     assert mem.backend == "sqlite"
     assert mem.backend_name in {"SQLite", "SQLite (local)"}
+
+
+def test_dbconnection_executescript_uses_cursor_for_postgresql():
+    class FakeCursor:
+        def __init__(self):
+            self.executed = []
+
+        def execute(self, statement):
+            self.executed.append(statement)
+
+        def close(self):
+            pass
+
+    class FakeConnection:
+        def __init__(self):
+            self._cursor = FakeCursor()
+
+        def cursor(self):
+            return self._cursor
+
+    conn = FakeConnection()
+    wrapped = DBConnection(conn, "postgresql")
+
+    wrapped.executescript("CREATE TABLE users (id INT); CREATE TABLE logs (id INT);")
+
+    assert conn._cursor.executed == [
+        "CREATE TABLE users (id INT)",
+        "CREATE TABLE logs (id INT)",
+    ]
 
 
 def test_deployed_environment_warning_logic(monkeypatch):

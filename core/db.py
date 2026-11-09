@@ -415,9 +415,14 @@ class DBConnection:
 
     def executescript(self, sql_text: str) -> None:
         if self.backend == "postgresql":
-            for statement in (part.strip() for part in sql_text.split(";")):
-                if statement:
-                    self._raw.execute(statement)
+            statements = [part.strip() for part in sql_text.split(";")]
+            cur = self._raw.cursor()
+            try:
+                for statement in statements:
+                    if statement:
+                        cur.execute(statement)
+            finally:
+                cur.close()
             return
         self._raw.executescript(sql_text)
 
@@ -443,9 +448,13 @@ def execute_sql_script(conn: Any, sql_text: str) -> None:
         conn.executescript(sql_text)
         return
     if get_database_backend() == "postgresql":
-        for statement in (part.strip() for part in sql_text.split(";")):
-            if statement:
-                conn.execute(statement)
+        cursor = conn.cursor()
+        try:
+            for statement in (part.strip() for part in sql_text.split(";")):
+                if statement:
+                    cursor.execute(statement)
+        finally:
+            cursor.close()
         return
     conn.executescript(sql_text)
 
