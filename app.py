@@ -51,29 +51,12 @@ st.set_page_config(
 
 from core.auth import AuthStore  # noqa: E402
 from ui import ensure_session, init_state  # noqa: E402
+from ui.theme import apply_theme  # noqa: E402
 from utils.i18n import SUPPORTED_LANGS, get_lang, rtl_css, t  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
 _FORECAST_TAB_LABELS = {"ar": "🔮 التنبؤات", "en": "🔮 Forecast"}
-
-# تنسيق CSS احترافي يضمن سلاسة الطي وعدم ظهور أي خطوط مزعجة
-CUSTOM_CSS = """
-<style>
-    /* إخفاء الحدود العلوية والخطوط المزعجة عند طي الشريط الجانبي */
-    [data-testid="stSidebar"] {
-        border-right: none !important;
-        border-left: none !important;
-    }
-    .stApp > header {
-        background-color: transparent !important;
-    }
-    /* تحسين طريقة عرض الجداول والكروت */
-    div[data-testid="stMetricValue"] {
-        font-size: 1.8rem !important;
-    }
-</style>
-"""
 
 def _render(
     module_name: str,
@@ -138,7 +121,7 @@ def main() -> None:
         st.session_state.pop("admin_bootstrap_error", None)
 
     st.markdown(rtl_css(), unsafe_allow_html=True)
-    st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
+    apply_theme(get_lang())
 
     user = st.session_state.get("user")
     if not user:

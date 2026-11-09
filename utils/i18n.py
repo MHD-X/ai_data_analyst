@@ -279,12 +279,12 @@ def t(key: str, lang: str | None = None, **kwargs: Any) -> str:
 _FONT = "'Cairo', 'Segoe UI', Tahoma, sans-serif"
 
 _RTL_CSS = f"""
-@import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800&display=swap');
 .stApp {{ font-family: {_FONT}; }}
 .stApp, [data-testid="stSidebar"], [data-testid="stChatMessage"],
 [data-testid="stMarkdownContainer"], [data-testid="stAlert"],
 [data-testid="stExpander"], [data-testid="stFileUploader"],
-[data-testid="stMetric"] {{ direction: rtl; text-align: right; }}
+[data-testid="stMetric"], [data-testid="stTab"] {{ direction: rtl; text-align: right; }}
 [data-testid="stChatInput"] textarea {{ direction: rtl; text-align: right; }}
 [data-baseweb="tab-list"] {{ direction: rtl; }}
 /* الكود والجداول والرسوم تبقى LTR */
@@ -293,6 +293,7 @@ pre, code, [data-testid="stCode"], [data-testid="stDataFrame"],
 """
 
 _LTR_CSS = f"""
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 .stApp {{ font-family: {_FONT}; }}
 """
 

@@ -114,6 +114,7 @@ def render_password_change_required(user: dict | None) -> None:
 
 
 def render_auth_page() -> None:
+    st.markdown('<div class="brand-badge">Between Data</div>', unsafe_allow_html=True)
     st.title("Between Data")
     st.caption(t("auth.auth_intro"))
     login_tab, register_tab, verify_tab, reset_tab = st.tabs([
