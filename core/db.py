@@ -18,10 +18,19 @@ try:
     import psycopg2
     from psycopg2 import pool as psycopg_pool
     from psycopg2.extras import RealDictCursor
-except Exception:  # pragma: no cover - optional dependency for PostgreSQL
+except ImportError:  # pragma: no cover - optional dependency for PostgreSQL
     psycopg2 = None
     psycopg_pool = None
     RealDictCursor = None
+
+
+def _require_postgres_dependencies() -> None:
+    """Raise a clear error when PostgreSQL support is requested without the driver installed."""
+    if psycopg2 is None or psycopg_pool is None:
+        raise RuntimeError(
+            "PostgreSQL support requires psycopg2-binary>=2.9.9. "
+            "Install it with: pip install psycopg2-binary>=2.9.9"
+        )
 
 from config import get_setting
 
@@ -97,8 +106,7 @@ def _get_postgres_pool(database_url: str) -> Any:
     Uses psycopg2.pool.SimpleConnectionPool to avoid per-request connection creation and
     ensures a single pool object is reused across threads safely.
     """
-    if psycopg2 is None or psycopg_pool is None:
-        raise RuntimeError("psycopg2 is required for PostgreSQL support.")
+    _require_postgres_dependencies()
 
     normalized = normalize_database_url(database_url)
     with _PG_POOL_LOCK:
@@ -463,8 +471,7 @@ def get_db_connection(
             database_url = normalize_database_url(get_database_url())
         if not database_url:
             raise RuntimeError("DATABASE_URL is not configured.")
-        if psycopg2 is None or psycopg_pool is None:
-            raise RuntimeError("psycopg2 is required for PostgreSQL support.")
+        _require_postgres_dependencies()
 
         pool = _get_postgres_pool(database_url)
         conn = None
@@ -480,13 +487,29 @@ def get_db_connection(
                 except Exception:
                     wrapped.rollback()
                     raise
+                finally:
+                    if conn is not None:
+                        try:
+                            pool.putconn(conn)
+                        except Exception:
+                            pass
                 return
             except Exception as exc:  # pragma: no cover - retry path
                 last_error = exc
+                if conn is not None:
+                    try:
+                        pool.putconn(conn)
+                    except Exception:
+                        pass
+                    conn = None
                 time.sleep(0.2 * attempt)
         if conn is not None:
             try:
                 conn.rollback()
+            except Exception:
+                pass
+            try:
+                pool.putconn(conn)
             except Exception:
                 pass
         raise RuntimeError(f"Failed to open PostgreSQL connection after {CONNECT_RETRIES} attempts") from last_error

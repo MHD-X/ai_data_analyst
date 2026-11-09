@@ -15,8 +15,14 @@ try:
 except Exception:  # pragma: no cover - optional, fallback works without it
     bcrypt = None
 
-from argon2 import PasswordHasher
-from argon2.exceptions import VerifyMismatchError
+try:
+    from argon2 import PasswordHasher
+    from argon2.exceptions import VerifyMismatchError
+except ImportError:  # pragma: no cover - optional dependency for authentication
+    PasswordHasher = None
+
+    class VerifyMismatchError(Exception):
+        pass
 
 from config import CONFIG, get_setting
 from core.db import (  # noqa: F401
@@ -67,6 +73,8 @@ def _verify_code_hash(code: str, stored_hash: str) -> bool:
 
 
 def _password_hasher() -> PasswordHasher:
+    if PasswordHasher is None:
+        raise RuntimeError("argon2-cffi is required for authentication. Install it with: pip install argon2-cffi")
     return PasswordHasher()
 
 

@@ -1,30 +1,31 @@
-# ===== Core =====
-streamlit==1.39.0
-python-dotenv==1.0.1
-requests==2.32.3
+# Core app dependencies
+streamlit>=1.39.0
+python-dotenv>=1.0.1
+requests>=2.32.3
 
-# ===== Data =====
-pandas==2.2.3
-numpy==2.1.2
-openpyxl==3.1.5          # قراءة Excel
-xlsxwriter==3.2.0        # كتابة Excel
+# Data processing and analysis
+pandas>=2.2.3
+numpy>=2.1.2
+openpyxl>=3.1.5
+xlsxwriter>=3.2.0
 
-# ===== Visualization =====
-plotly==5.24.1
-kaleido==0.2.1           # تصدير صور Plotly
+# Visualization
+plotly>=5.24.1
+kaleido>=0.2.1
 
-# ===== ML / Forecasting =====
-scikit-learn==1.5.2
-statsmodels==0.14.4
-prophet==1.1.6           # للتنبؤ الزمني
+# Forecasting and ML
+scikit-learn>=1.5.2
+statsmodels>=0.14.4
+prophet>=1.1.6
 
-# ===== Security & Utils =====
-cryptography
-pydantic==2.9.2
-tabulate==0.9.0
-psycopg[binary]==3.2.3
-argon2-cffi==23.1.0
-#=======
+# Database and security
+psycopg2-binary>=2.9.9
+cryptography>=42.0.0
+pydantic>=2.9.2
+tabulate>=0.9.0
+argon2-cffi>=23.1.0
+
+# Reporting and text support
 reportlab>=3.6.0
 arabic-reshaper>=3.0.0
 python-bidi>=0.4.2

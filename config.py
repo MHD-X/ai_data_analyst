@@ -7,7 +7,12 @@ from __future__ import annotations
 import os
 from pathlib import Path
 from dataclasses import dataclass, field
-from dotenv import load_dotenv
+
+try:
+    from dotenv import load_dotenv
+except ImportError:  # pragma: no cover - fallback if dependency is absent during bootstrapping
+    def load_dotenv(*args, **kwargs):
+        return False
 
 # تحميل متغيرات البيئة من .env (محلياً)
 load_dotenv()
