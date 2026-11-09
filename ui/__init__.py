@@ -36,6 +36,12 @@ def init_state() -> None:
         st.session_state.setdefault(key, value)
     if st.session_state.get("lang") is None:
         st.session_state["lang"] = CONFIG.ui.default_language
+    if st.session_state.get("language") is None:
+        st.session_state["language"] = st.session_state["lang"]
+    from utils.i18n import normalize_language
+
+    st.session_state["lang"] = normalize_language(st.session_state.get("lang"))
+    st.session_state["language"] = normalize_language(st.session_state.get("language"))
 
 
 def set_dataframe(

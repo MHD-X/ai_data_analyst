@@ -45,7 +45,7 @@ from config import CONFIG, get_setting, validate_config
 from core.auth import AuthStore, is_authenticated, require_role, session_logout
 from ui import ensure_session, init_state
 from ui.theme import apply_theme
-from utils.i18n import SUPPORTED_LANGS, get_lang, rtl_css, t
+from utils.i18n import SUPPORTED_LANGS, get_lang, normalize_language, rtl_css, t
 
 logger = logging.getLogger(__name__)
 
@@ -75,7 +75,8 @@ def _fallback_sidebar() -> None:
         t("language"),
         options=list(SUPPORTED_LANGS),
         format_func=lambda code: SUPPORTED_LANGS[code],
-        key="lang",
+        key="language",
+        on_change=lambda: st.session_state.__setitem__("lang", st.session_state.get("language")),
     )
     st.info(t("under_construction", module="ui.sidebar", func="render_sidebar"))
 
@@ -101,12 +102,10 @@ def _logout_current_user() -> None:
 
 def main() -> None:
     init_state()
-    st.session_state.setdefault("lang", CONFIG.ui.default_language)
-    st.session_state.setdefault("language", st.session_state["lang"])
-    if st.session_state.get("language") not in SUPPORTED_LANGS:
-        st.session_state["language"] = st.session_state["lang"]
-    if st.session_state.get("lang") not in SUPPORTED_LANGS:
-        st.session_state["lang"] = st.session_state["language"]
+    raw_lang = st.session_state.get("language") or st.session_state.get("lang") or CONFIG.ui.default_language
+    normalized = normalize_language(raw_lang)
+    st.session_state["lang"] = normalized
+    st.session_state["language"] = normalized
 
     try:
         bootstrap_result = AuthStore().bootstrap_admin()

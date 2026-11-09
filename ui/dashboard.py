@@ -28,11 +28,20 @@ from utils.helpers import (
     get_dataframe_summary,
     truncate_text,
 )
-from utils.i18n import t
+from utils.i18n import get_lang, t
+
+
+def _freq_label(code: str) -> str:
+    return {
+        "D": t("period_daily"),
+        "W": t("period_weekly"),
+        "ME": t("period_monthly"),
+    }.get(code, code)
+
 
 EMPTY_PERIOD_LABELS = {
-    "zero": "اعتبرها صفراً (لا مبيعات)",
-    "interpolate": "اعتبرها بيانات ناقصة (استكمال خطي)",
+    "zero": "forecast.empty_zero",
+    "interpolate": "forecast.empty_interpolate",
 }
 
 
@@ -343,11 +352,11 @@ def _render_analysis_panel(bundle: dict[str, Any]) -> None:
     if anomalies is not None and anomalies.count:
         with st.expander("⚠️ " + t("forecast.anomalies"), expanded=False):
             display = anomalies.table.reset_index().rename(columns={
-                "index": "التاريخ",
-                "value": "القيمة",
-                "expected": "المتوقعة",
-                "score": "درجة الشذوذ",
-                "direction": "الاتجاه",
+                "index": t("table_date"),
+                "value": t("table_value"),
+                "expected": t("table_expected"),
+                "score": t("table_score"),
+                "direction": t("table_direction"),
             })
             st.dataframe(display, use_container_width=True, hide_index=True)
     else:
@@ -380,7 +389,7 @@ def render_dashboard(*args: Any, **kwargs: Any) -> None:
         freq = c3.selectbox(
             t("forecast.frequency"),
             ["D", "W", "ME"],
-            format_func={"D": "Daily", "W": "Weekly", "ME": "Monthly"}.get,
+            format_func=_freq_label,
             index=1,
             key="dash_select_freq",
         )
@@ -389,9 +398,7 @@ def render_dashboard(*args: Any, **kwargs: Any) -> None:
         empty_periods = st.selectbox(
             t("forecast.empty_periods"),
             list(EMPTY_PERIOD_LABELS),
-            format_func=lambda key: (
-                t("forecast.empty_zero") if key == "zero" else t("forecast.empty_interpolate")
-            ),
+            format_func=lambda key: t(EMPTY_PERIOD_LABELS[key]),
             index=0,
             key="dash_select_empty_periods",
             help=t("forecast.empty_periods_help"),

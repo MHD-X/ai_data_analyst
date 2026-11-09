@@ -19,6 +19,14 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     "ar": {
         # --- عام ---
         "app_title": "محلل البيانات الذكي",
+        "period_daily": "يومي",
+        "period_weekly": "أسبوعي",
+        "period_monthly": "شهري",
+        "table_date": "التاريخ",
+        "table_value": "القيمة",
+        "table_expected": "المتوقعة",
+        "table_score": "درجة الشذوذ",
+        "table_direction": "الاتجاه",
         "app_subtitle": "ارفع ملفك، اكتب طلبك، ودع الذكاء الاصطناعي يحلّل بياناتك.",
         "tab_chat": "💬 المحادثة",
         "tab_dashboard": "📊 لوحة المعلومات",
@@ -117,6 +125,9 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "forecast.prediction_window": "فترة التنبؤ",
         "forecast.empty_periods": "الفترات التي لا تحتوي سجلات",
         "forecast.empty_periods_help": "مثال: أسبوع أُزيلت كل صفوفه بسبب الحجر الصحي. اختر «بيانات ناقصة» لتجنب اعتباره صفراً.",
+        "forecast.empty_zero": "اعتبرها صفراً (لا مبيعات)",
+        "forecast.empty_interpolate": "اعتبرها بيانات ناقصة (استكمال خطي)",
+        "forecast.dedupe_help": "مهم لو الملف فيه صفوف مكررة لنفس السجل (مثل ربط الشهادات).",
         "forecast.run_analysis": "🚀 إنشاء التحليل",
         "forecast.analysis_error": "تعذّر إنشاء التحليل: {error}",
         "forecast.no_anomalies": "لم تُرصد قيم شاذة في السلسلة التاريخية.",
@@ -268,9 +279,14 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "forecast.empty_zero": "Treat as zero (no sales)",
         "forecast.empty_interpolate": "Treat as missing data (linear interpolation)",
         "forecast.dedupe_help": "Important if the file contains duplicate rows for the same record (such as linked certificates).",
-        "forecast.empty_zero": "Treat as zero (no sales)",
-        "forecast.empty_interpolate": "Treat as missing data (linear interpolation)",
-        "forecast.dedupe_help": "Important if the file contains duplicate rows for the same record (such as linked certificates).",
+        "period_daily": "Daily",
+        "period_weekly": "Weekly",
+        "period_monthly": "Monthly",
+        "table_date": "Date",
+        "table_value": "Value",
+        "table_expected": "Expected",
+        "table_score": "Anomaly score",
+        "table_direction": "Direction",
         "forecast.run_analysis": "🚀 Run analysis",
         "forecast.analysis_error": "Unable to generate the analysis: {error}",
         "forecast.no_anomalies": "No anomalies were detected in the time series.",
@@ -321,6 +337,27 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
 }
 
 
+def normalize_language(lang: str | None) -> str:
+    """Normalize aliases such as 'English' / 'العربية' / 'en' / 'ar' to a canonical code."""
+    if not lang:
+        return DEFAULT_LANG
+    key = str(lang).strip()
+    if key in SUPPORTED_LANGS:
+        return key
+    lowered = key.lower()
+    aliases = {
+        "ar": "ar",
+        "arabic": "ar",
+        "العربية": "ar",
+        "en": "en",
+        "english": "en",
+    }
+    normalized = aliases.get(lowered)
+    if normalized in SUPPORTED_LANGS:
+        return normalized
+    return DEFAULT_LANG
+
+
 # ============ اللغة الحالية ============
 def get_lang() -> str:
     """Return the active language from either `lang` or `language` session keys."""
@@ -331,13 +368,15 @@ def get_lang() -> str:
         lang = st.session_state.get("language") or st.session_state.get("lang")
     except Exception:
         pass
+    lang = normalize_language(lang)
     if lang in SUPPORTED_LANGS:
-        return lang  # type: ignore[return-value]
+        return lang
     try:
         from config import CONFIG
 
-        if CONFIG.ui.default_language in SUPPORTED_LANGS:
-            return CONFIG.ui.default_language
+        config_lang = normalize_language(CONFIG.ui.default_language)
+        if config_lang in SUPPORTED_LANGS:
+            return config_lang
     except Exception:
         pass
     return DEFAULT_LANG
@@ -345,16 +384,15 @@ def get_lang() -> str:
 
 def set_language(lang: str | None) -> str:
     """Persist the selected language in both supported session-state keys."""
-    if lang not in SUPPORTED_LANGS:
-        lang = DEFAULT_LANG
+    normalized = normalize_language(lang)
     try:
         import streamlit as st
 
-        st.session_state["lang"] = lang
-        st.session_state["language"] = lang
+        st.session_state["lang"] = normalized
+        st.session_state["language"] = normalized
     except Exception:
         pass
-    return lang
+    return normalized
 
 
 def is_rtl(lang: str | None = None) -> bool:

@@ -40,25 +40,41 @@ def build_theme_css(lang: str | None = None) -> str:
         --between-grid: rgba(148, 163, 184, 0.18);
     }}
 
+    html, body {{
+        margin: 0;
+        overflow-x: hidden;
+    }}
+
     .stApp {{
         background: linear-gradient(135deg, var(--between-bg) 0%, var(--between-bg-soft) 100%);
         color: var(--between-text);
         font-family: {font_stack};
         direction: {direction};
         min-height: 100vh;
-    }}
-
-    .stApp [data-testid="stMain"] {{
+        width: 100%;
+        max-width: 100%;
         overflow-x: hidden;
     }}
 
+    .stApp > div {{
+        width: 100%;
+    }}
+
+    .stApp [data-testid="stMain"] {{
+        width: 100% !important;
+        max-width: 100% !important;
+        overflow-x: hidden;
+        transition: margin-left 0.25s ease, width 0.25s ease, max-width 0.25s ease, padding 0.25s ease;
+    }}
+
     .stApp .block-container {{
-        max-width: none;
-        width: min(100%, 1500px);
-        padding-left: clamp(0.75rem, 2.2vw, 2rem);
-        padding-right: clamp(0.75rem, 2.2vw, 2rem);
-        padding-top: 2rem;
-        padding-bottom: 4rem;
+        max-width: none !important;
+        width: min(100%, 1500px) !important;
+        padding-left: clamp(0.75rem, 2.2vw, 2rem) !important;
+        padding-right: clamp(0.75rem, 2.2vw, 2rem) !important;
+        padding-top: 2rem !important;
+        padding-bottom: 4rem !important;
+        margin: 0 auto !important;
         transition: width 0.25s ease, max-width 0.25s ease, padding 0.25s ease;
     }}
 
@@ -70,20 +86,27 @@ def build_theme_css(lang: str | None = None) -> str:
         width: 22rem !important;
         min-width: 18rem !important;
         max-width: 24rem !important;
-        transition: width 0.25s ease, min-width 0.25s ease, max-width 0.25s ease;
+        transition: width 0.25s ease, min-width 0.25s ease, max-width 0.25s ease, opacity 0.2s ease, transform 0.2s ease;
         overflow-x: hidden;
     }}
 
     [data-testid="stSidebar"] > div:first-child {{
         width: 100%;
         min-width: 0;
+        transition: opacity 0.2s ease, visibility 0.2s ease;
     }}
 
     [data-testid="stSidebar"][aria-expanded="false"] {{
         width: 0 !important;
         min-width: 0 !important;
         max-width: 0 !important;
+        opacity: 0;
         overflow: hidden !important;
+    }}
+
+    [data-testid="stSidebar"][aria-expanded="false"] > div:first-child {{
+        opacity: 0;
+        visibility: hidden;
     }}
 
     [data-testid="stSidebar"] .stSelectbox,

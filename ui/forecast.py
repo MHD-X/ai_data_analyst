@@ -16,10 +16,18 @@ from core.forecasting import (
     forecast_series,
     make_figure,
 )
-from utils.i18n import t
+from utils.i18n import get_lang, t
 
 _COUNT = "(عدد السجلات)"
 _NONE = "—"
+
+
+def _freq_label(code: str) -> str:
+    return {
+        "D": t("period_daily"),
+        "W": t("period_weekly"),
+        "ME": t("period_monthly"),
+    }.get(code, code)
 
 
 def render_forecast() -> None:
@@ -42,7 +50,7 @@ def render_forecast() -> None:
     c1, c2, c3 = st.columns(3)
     date_col = c1.selectbox(t("forecast.date_column"), date_cols)
     value_opt = c2.selectbox(t("forecast.metric"), [_COUNT, *numeric_cols])
-    freq = c3.selectbox(t("forecast.frequency"), list(FREQ_LABELS), format_func=FREQ_LABELS.get, index=1)
+    freq = c3.selectbox(t("forecast.frequency"), list(FREQ_LABELS), format_func=_freq_label, index=1)
 
     c4, c5, c6 = st.columns(3)
     agg = c4.selectbox(t("forecast.aggregate"), ["sum", "mean"], disabled=(value_opt == _COUNT))
