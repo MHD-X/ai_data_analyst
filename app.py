@@ -50,6 +50,23 @@ from utils.i18n import SUPPORTED_LANGS, get_lang, normalize_language, rtl_css, t
 
 logger = logging.getLogger(__name__)
 
+CUSTOM_CSS = """
+<style>
+#MainMenu {
+    display: none !important;
+}
+footer {
+    display: none !important;
+}
+[data-testid="stDecoration"] {
+    display: none !important;
+}
+[data-testid="stHeader"] {
+    background: transparent !important;
+}
+</style>
+"""
+
 _FORECAST_TAB_LABELS = {"ar": "🔮 التنبؤات", "en": "🔮 Forecast"}
 _LOGO_PATH = ROOT / "assets" / "logo.png"
 _ICON_PATH = ROOT / "assets" / "icon.png"
@@ -93,42 +110,6 @@ def _render_main_page_logo() -> None:
         st.warning("Logo image not found. Please add assets/logo.png and assets/icon.png")
         return
     st.image(str(_LOGO_PATH), width=220)
-
-
-def _render_sidebar_collapse_css() -> None:
-    st.markdown(
-        """
-        <style>
-        [data-testid="stSidebarCollapseButton"] {
-            position: fixed !important;
-            top: 0.75rem !important;
-            right: 0.75rem !important;
-            z-index: 2147483647 !important;
-            border-radius: 0.6rem !important;
-            border: 1px solid rgba(148, 163, 184, 0.25) !important;
-            background: rgba(15, 23, 42, 0.9) !important;
-            box-shadow: 0 10px 28px rgba(2, 6, 23, 0.35) !important;
-            opacity: 1 !important;
-            visibility: visible !important;
-            pointer-events: auto !important;
-        }
-        [data-testid="stSidebarCollapseButton"]:hover {
-            background: rgba(17, 24, 39, 0.98) !important;
-        }
-        [data-testid="stHeader"] {
-            background: transparent !important;
-        }
-        section[data-testid="stSidebar"] {
-            z-index: 5 !important;
-        }
-        [data-testid="stSidebar"] {
-            position: relative !important;
-            z-index: 10 !important;
-        }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
 
 
 def _render(module_name: str, func_name: str, fallback: Callable[[], None] | None = None) -> None:
@@ -198,8 +179,8 @@ def main() -> None:
         st.session_state.pop("admin_bootstrap_error", None)
 
     st.markdown(rtl_css(), unsafe_allow_html=True)
+    st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
     apply_theme(get_lang())
-    _render_sidebar_collapse_css()
     _render_logo_images()
 
     user = st.session_state.get("user")
