@@ -93,12 +93,25 @@ def has_dataframe() -> bool:
 
 
 def ensure_session() -> int:
-    sid = st.session_state.get("session_id")
+    ss = st.session_state
+    user = ss.get("user") or {}
+    user_id = user.get("id")
+    sid = ss.get("session_id")
+
     if sid is not None:
-        return sid
+        memory = get_memory()
+        current_session = memory.get_session(int(sid), user_id=user_id)
+        if current_session is not None:
+            return sid
+        ss["session_id"] = None
+
     memory = get_memory()
-    sid = memory.create_session(name=f"Session {now_iso()}", metadata={"source": "streamlit"})
-    st.session_state["session_id"] = sid
+    sid = memory.create_session(
+        name=f"Session {now_iso()}",
+        metadata={"source": "streamlit"},
+        user_id=int(user_id) if user_id is not None else None,
+    )
+    ss["session_id"] = sid
     return sid
 
 

@@ -21,6 +21,7 @@ from config import CONFIG
 from core.db import (
     clear_all_sql,
     connect_database,
+    ensure_user_scoping_columns,
     execute_sql_script,
     get_database_backend,
     get_database_url,
@@ -51,6 +52,7 @@ SCHEMA_SQL = get_schema_sql("sqlite")
 @dataclass
 class Session:
     id: int | None = None
+    user_id: int = 0
     name: str = ""
     metadata: dict[str, Any] = field(default_factory=dict)
     created_at: str = ""
@@ -60,6 +62,7 @@ class Session:
 @dataclass
 class Dataset:
     id: int | None = None
+    user_id: int = 0
     session_id: int | None = None
     filename: str = ""
     file_hash: str = ""
@@ -73,6 +76,7 @@ class Dataset:
 @dataclass
 class Operation:
     id: int | None = None
+    user_id: int = 0
     dataset_id: int | None = None
     session_id: int | None = None
     user_request: str = ""
@@ -138,6 +142,7 @@ class MemoryStore:
         """ينشئ الجداول إن لم تكن موجودة."""
         with self._connect() as conn:
             execute_sql_script(conn, get_schema_sql(self.backend))
+            ensure_user_scoping_columns(conn, self.backend)
             conn.commit()
         logger.info("✅ قاعدة البيانات جاهزة (%s)", self.backend)
 
@@ -171,6 +176,7 @@ class MemoryStore:
     def _row_to_dataset(d: dict[str, Any]) -> Dataset:
         return Dataset(
             id=d["id"],
+            user_id=int(d.get("user_id") or 0),
             session_id=d.get("session_id"),
             filename=d["filename"],
             file_hash=d["file_hash"],
@@ -188,6 +194,7 @@ class MemoryStore:
         self,
         name: str,
         metadata: dict[str, Any] | None = None,
+        user_id: int | None = None,
     ) -> int:
         """ينشئ جلسة جديدة ويعيد session_id."""
         now = now_iso()
@@ -196,23 +203,26 @@ class MemoryStore:
         with self._connect() as conn:
             session_id = conn.insert(
                 """
-                INSERT INTO sessions (name, metadata, created_at, updated_at)
-                VALUES (?, ?, ?, ?)
+                INSERT INTO sessions (user_id, name, metadata, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?)
                 """,
-                (name, meta_json, now, now),
+                (int(user_id or 0), name, meta_json, now, now),
             )
             conn.commit()
 
-        logger.info("📁 جلسة جديدة #%d: %s", session_id, name)
+        logger.info("📁 جلسة جديدة #%d: %s (user=%s)", session_id, name, user_id)
         return session_id
 
-    def get_session(self, session_id: int) -> Session | None:
-        """يعيد جلسة بالمعرّف."""
+    def get_session(self, session_id: int, user_id: int | None = None) -> Session | None:
+        """يعيد جلسة بالمعرّف، مع فلترة اختيارية حسب المستخدم."""
+        query = "SELECT * FROM sessions WHERE id = ?"
+        params: list[Any] = [session_id]
+        if user_id is not None:
+            query += " AND user_id = ?"
+            params.append(int(user_id))
+
         with self._connect() as conn:
-            row = conn.execute(
-                "SELECT * FROM sessions WHERE id = ?",
-                (session_id,),
-            ).fetchone()
+            row = conn.execute(query, tuple(params)).fetchone()
 
         if row is None:
             return None
@@ -220,27 +230,30 @@ class MemoryStore:
         d = dict(row)
         return Session(
             id=d["id"],
+            user_id=int(d.get("user_id") or 0),
             name=d["name"],
             metadata=safe_json_loads(d.get("metadata"), default={}),
             created_at=d["created_at"],
             updated_at=d["updated_at"],
         )
 
-    def list_sessions(self, limit: int = 50) -> list[Session]:
-        """يعيد آخر الجلسات."""
+    def list_sessions(self, limit: int = 50, user_id: int | None = None) -> list[Session]:
+        """يعيد آخر الجلسات. إذا وُضع user_id فلترها حسب المستخدم."""
+        query = "SELECT * FROM sessions"
+        params: list[Any] = []
+        if user_id is not None:
+            query += " WHERE user_id = ?"
+            params.append(int(user_id))
+        query += " ORDER BY updated_at DESC LIMIT ?"
+        params.append(limit)
+
         with self._connect() as conn:
-            rows = conn.execute(
-                """
-                SELECT * FROM sessions
-                ORDER BY updated_at DESC
-                LIMIT ?
-                """,
-                (limit,),
-            ).fetchall()
+            rows = conn.execute(query, tuple(params)).fetchall()
 
         return [
             Session(
                 id=d["id"],
+                user_id=int(d.get("user_id") or 0),
                 name=d["name"],
                 metadata=safe_json_loads(d.get("metadata"), default={}),
                 created_at=d["created_at"],
@@ -303,6 +316,7 @@ class MemoryStore:
         columns_info: dict[str, Any] | None = None,
         session_id: int | None = None,
         file_hash: str | None = None,
+        user_id: int | None = None,
     ) -> int:
         """يخزّن ملفاً مرفوعاً، مع دعم hash يدوي عند الحاجة."""
         file_path = Path(file_path)
@@ -314,11 +328,12 @@ class MemoryStore:
             dataset_id = conn.insert(
                 """
                 INSERT INTO datasets
-                    (session_id, filename, file_hash, file_path,
+                    (user_id, session_id, filename, file_hash, file_path,
                      rows, cols, columns_info, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
+                    int(user_id or 0),
                     session_id,
                     filename,
                     file_hash,
@@ -331,7 +346,7 @@ class MemoryStore:
             )
             conn.commit()
 
-        logger.info("📊 ملف جديد #%d: %s (%d×%d)", dataset_id, filename, rows, cols)
+        logger.info("📊 ملف جديد #%d: %s (%d×%d) user=%s", dataset_id, filename, rows, cols, user_id)
         return dataset_id
 
     def get_dataset(self, dataset_id: int) -> Dataset | None:
@@ -346,18 +361,17 @@ class MemoryStore:
             return None
         return self._row_to_dataset(dict(row))
 
-    def get_dataset_by_hash(self, file_hash: str) -> Dataset | None:
+    def get_dataset_by_hash(self, file_hash: str, user_id: int | None = None) -> Dataset | None:
         """يعيد dataset ببصمة الملف (لو رُفع سابقاً)."""
+        query = "SELECT * FROM datasets WHERE file_hash = ?"
+        params: list[Any] = [file_hash]
+        if user_id is not None:
+            query += " AND user_id = ?"
+            params.append(int(user_id))
+        query += " ORDER BY created_at DESC LIMIT 1"
+
         with self._connect() as conn:
-            row = conn.execute(
-                """
-                SELECT * FROM datasets
-                WHERE file_hash = ?
-                ORDER BY created_at DESC
-                LIMIT 1
-                """,
-                (file_hash,),
-            ).fetchone()
+            row = conn.execute(query, tuple(params)).fetchone()
 
         if row is None:
             return None
@@ -367,28 +381,22 @@ class MemoryStore:
         self,
         session_id: int | None = None,
         limit: int = 50,
+        user_id: int | None = None,
     ) -> list[Dataset]:
-        """يعيد قائمة الملفات (اختياري: جلسة معينة)."""
+        """يعيد قائمة الملفات (اختياري: جلسة معينة أو مستخدم معين)."""
+        query = "SELECT * FROM datasets WHERE 1=1"
+        params: list[Any] = []
+        if user_id is not None:
+            query += " AND user_id = ?"
+            params.append(int(user_id))
+        if session_id is not None:
+            query += " AND session_id = ?"
+            params.append(session_id)
+        query += " ORDER BY created_at DESC LIMIT ?"
+        params.append(limit)
+
         with self._connect() as conn:
-            if session_id is not None:
-                rows = conn.execute(
-                    """
-                    SELECT * FROM datasets
-                    WHERE session_id = ?
-                    ORDER BY created_at DESC
-                    LIMIT ?
-                    """,
-                    (session_id, limit),
-                ).fetchall()
-            else:
-                rows = conn.execute(
-                    """
-                    SELECT * FROM datasets
-                    ORDER BY created_at DESC
-                    LIMIT ?
-                    """,
-                    (limit,),
-                ).fetchall()
+            rows = conn.execute(query, tuple(params)).fetchall()
 
         return [self._row_to_dataset(d) for d in self._rows_to_dicts(rows)]
 
@@ -416,6 +424,7 @@ class MemoryStore:
         error_type: str = "",
         dataset_id: int | None = None,
         session_id: int | None = None,
+        user_id: int | None = None,
     ) -> int:
         """يسجّل عملية في قاعدة البيانات ويعيد operation_id."""
         now = now_iso()
@@ -428,12 +437,13 @@ class MemoryStore:
             op_id = conn.insert(
                 """
                 INSERT INTO operations
-                    (dataset_id, session_id, user_request, generated_code,
+                    (user_id, dataset_id, session_id, user_request, generated_code,
                      result_summary, success, execution_time,
                      error, error_type, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
+                    int(user_id or 0),
                     dataset_id,
                     session_id,
                     user_request,
@@ -449,7 +459,7 @@ class MemoryStore:
             conn.commit()
 
         status = "✅" if success else "❌"
-        logger.info("%s عملية #%d: %s", status, op_id, truncate_text(user_request, 60))
+        logger.info("%s عملية #%d: %s (user=%s)", status, op_id, truncate_text(user_request, 60), user_id)
         return op_id
 
     def get_operation(self, operation_id: int) -> Operation | None:
@@ -470,11 +480,15 @@ class MemoryStore:
         session_id: int | None = None,
         success_only: bool = False,
         limit: int = 50,
+        user_id: int | None = None,
     ) -> list[Operation]:
         """يعيد قائمة العمليات مع فلاتر اختيارية."""
         query = "SELECT * FROM operations WHERE 1=1"
         params: list[Any] = []
 
+        if user_id is not None:
+            query += " AND user_id = ?"
+            params.append(int(user_id))
         if dataset_id is not None:
             query += " AND dataset_id = ?"
             params.append(dataset_id)
@@ -488,7 +502,7 @@ class MemoryStore:
         params.append(limit)
 
         with self._connect() as conn:
-            rows = conn.execute(query, params).fetchall()
+            rows = conn.execute(query, tuple(params)).fetchall()
 
         return [self._row_to_operation(d) for d in self._rows_to_dicts(rows)]
 
@@ -618,6 +632,7 @@ class MemoryStore:
         dataset_id: int | None = None,
         limit: int | None = None,
         success_only: bool = True,
+        user_id: int | None = None,
     ) -> list[Operation]:
         """
         يبحث عن عمليات مشابهة لطلب المستخدم (تشابه نصي بالكلمات المفتاحية).
@@ -640,6 +655,10 @@ class MemoryStore:
 
         if success_only:
             query += " AND success = 1"
+
+        if user_id is not None:
+            query += " AND user_id = ?"
+            params.append(int(user_id))
 
         if dataset_id is not None:
             query += " AND dataset_id = ?"
@@ -697,6 +716,7 @@ class MemoryStore:
         user_request: str,
         dataset_id: int | None = None,
         limit: int | None = None,
+        user_id: int | None = None,
     ) -> list[dict[str, str]]:
         """
         يعيد أمثلة جاهزة للاستخدام في prompt الـ LLM:
@@ -706,6 +726,7 @@ class MemoryStore:
             user_request,
             dataset_id=dataset_id,
             limit=limit,
+            user_id=user_id,
         )
 
         examples: list[dict[str, str]] = []
@@ -723,23 +744,26 @@ class MemoryStore:
     # ========================================================
     # STATISTICS — إحصائيات
     # ========================================================
-    def get_statistics(self) -> dict[str, Any]:
+    def get_statistics(self, user_id: int | None = None) -> dict[str, Any]:
         """يعيد إحصائيات شاملة عن قاعدة البيانات."""
         with self._connect() as conn:
             stats: dict[str, Any] = {}
+            filters = " WHERE user_id = ?" if user_id is not None else ""
+            params: list[Any] = [int(user_id)] if user_id is not None else []
 
             stats["total_sessions"] = int(
-                conn.execute("SELECT COUNT(*) AS n FROM sessions").fetchone()["n"]
+                conn.execute(f"SELECT COUNT(*) AS n FROM sessions{filters}", tuple(params)).fetchone()["n"]
             )
             stats["total_datasets"] = int(
-                conn.execute("SELECT COUNT(*) AS n FROM datasets").fetchone()["n"]
+                conn.execute(f"SELECT COUNT(*) AS n FROM datasets{filters}", tuple(params)).fetchone()["n"]
             )
             stats["total_operations"] = int(
-                conn.execute("SELECT COUNT(*) AS n FROM operations").fetchone()["n"]
+                conn.execute(f"SELECT COUNT(*) AS n FROM operations{filters}", tuple(params)).fetchone()["n"]
             )
             stats["successful_operations"] = int(
                 conn.execute(
-                    "SELECT COUNT(*) AS n FROM operations WHERE success = 1"
+                    f"SELECT COUNT(*) AS n FROM operations WHERE success = 1{filters and ' AND user_id = ?'}",
+                    tuple(params if filters else []) if filters else (),
                 ).fetchone()["n"]
             )
             stats["failed_operations"] = (
@@ -754,16 +778,19 @@ class MemoryStore:
             else:
                 stats["success_rate"] = 0.0
 
+            avg_params = tuple(params) if params else ()
             row = conn.execute(
-                "SELECT AVG(execution_time) AS v FROM operations WHERE success = 1"
+                f"SELECT AVG(execution_time) AS v FROM operations WHERE success = 1{filters and ' AND user_id = ?'}",
+                avg_params,
             ).fetchone()
             stats["avg_execution_time"] = round(float(row["v"] or 0.0), 3)
 
+            feedback_filters = " WHERE operation_id IN (SELECT id FROM operations" + (" WHERE user_id = ?" if user_id is not None else "") + ")" if user_id is not None else ""
             stats["total_feedback"] = int(
-                conn.execute("SELECT COUNT(*) AS n FROM feedback").fetchone()["n"]
+                conn.execute(f"SELECT COUNT(*) AS n FROM feedback{feedback_filters}", tuple(params) if user_id is not None else ()).fetchone()["n"]
             )
 
-            row = conn.execute("SELECT AVG(rating) AS v FROM feedback").fetchone()
+            row = conn.execute(f"SELECT AVG(rating) AS v FROM feedback{feedback_filters}", tuple(params) if user_id is not None else ()).fetchone()
             stats["avg_rating"] = round(float(row["v"] or 0.0), 2)
 
             # حجم قاعدة البيانات
@@ -783,23 +810,21 @@ class MemoryStore:
 
         return stats
 
-    def get_recent_operations(self, limit: int = 10) -> list[Operation]:
+    def get_recent_operations(self, limit: int = 10, user_id: int | None = None) -> list[Operation]:
         """يعيد آخر العمليات."""
-        return self.list_operations(limit=limit)
+        return self.list_operations(limit=limit, user_id=user_id)
 
-    def get_top_requests(self, limit: int = 10) -> list[dict[str, Any]]:
+    def get_top_requests(self, limit: int = 10, user_id: int | None = None) -> list[dict[str, Any]]:
         """يعيد أكثر الطلبات تكراراً."""
         with self._connect() as conn:
-            rows = conn.execute(
-                """
-                SELECT user_request, COUNT(*) AS count
-                FROM operations
-                GROUP BY user_request
-                ORDER BY count DESC
-                LIMIT ?
-                """,
-                (limit,),
-            ).fetchall()
+            query = "SELECT user_request, COUNT(*) AS count FROM operations"
+            params: list[Any] = []
+            if user_id is not None:
+                query += " WHERE user_id = ?"
+                params.append(int(user_id))
+            query += " GROUP BY user_request ORDER BY count DESC LIMIT ?"
+            params.append(limit)
+            rows = conn.execute(query, tuple(params)).fetchall()
 
         return [
             {"request": d["user_request"], "count": int(d["count"])}

@@ -70,6 +70,7 @@ def _log(
             error_type=error_type,
             dataset_id=ss.get("dataset_id"),
             session_id=ss.get("session_id"),
+            user_id=(ss.get("user") or {}).get("id"),
         )
     except Exception:
         return None
@@ -125,6 +126,7 @@ def _run_pipeline(user_request: str, status: Any) -> dict[str, Any]:
         examples = get_memory().get_few_shot_examples(
             user_request,
             dataset_id=ss.get("dataset_id"),
+            user_id=(ss.get("user") or {}).get("id"),
         )
     except Exception:
         examples = []

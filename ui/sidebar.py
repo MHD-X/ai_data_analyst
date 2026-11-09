@@ -138,8 +138,9 @@ def _handle_upload(uploaded) -> None:
 
     # 4) تسجيل في الذاكرة (أو استرجاع dataset_id من السجل القديم)
     dataset_id: int | None = None
+    user_id = (ss.get("user") or {}).get("id")
     try:
-        existing = memory.get_dataset_by_hash(fhash) if fhash else None
+        existing = memory.get_dataset_by_hash(fhash, user_id=user_id) if fhash else None
         if existing is not None:
             dataset_id = existing.id
             st.info(t("file_already_known"))
@@ -154,6 +155,7 @@ def _handle_upload(uploaded) -> None:
                 cols=len(df.columns),
                 columns_info=columns_info,
                 session_id=ss.get("session_id"),
+                user_id=user_id,
             )
     except Exception as exc:
         # فشل التسجيل لا يجب أن يوقف التطبيق
@@ -210,8 +212,10 @@ def _render_file_info() -> None:
     cols = summary.get("columns", 0)
 
     col1, col2 = st.columns(2)
-    col1.metric(t("rows_label"), rows)
-    col2.metric(t("cols_label"), cols)
+    with col1:
+        st.metric(t("rows_label"), rows)
+    with col2:
+        st.metric(t("cols_label"), cols)
 
     # زر حذف الملف
     if st.button(t("remove_file"), use_container_width=True, key="remove_file_btn"):
@@ -236,8 +240,11 @@ def _render_sessions() -> None:
 
     if st.button(t("new_session"), use_container_width=True, key="new_session_btn"):
         try:
+            from ui import reset_dataset_state
+            reset_dataset_state()
             sid = memory.create_session(
-                name=t("default_session_name", ts="").strip() or "Session"
+                name=t("default_session_name", ts="").strip() or "Session",
+                user_id=(ss.get("user") or {}).get("id"),
             )
             ss["session_id"] = sid
             ss["messages"] = []
@@ -246,7 +253,7 @@ def _render_sessions() -> None:
             st.error(f"❌ تعذّر إنشاء جلسة: {exc}")
 
     try:
-        sessions = memory.list_sessions(limit=10)
+        sessions = memory.list_sessions(limit=10, user_id=(ss.get("user") or {}).get("id"))
     except Exception:
         sessions = []
 
@@ -281,7 +288,8 @@ def _render_tools() -> None:
     user = ss.get("user") or {}
 
     if user:
-        st.caption(f"👤 {user.get('email', '')}")
+        display_name = (user.get("display_name") or user.get("email") or "User").strip() or "User"
+        st.caption(f"👤 {display_name}")
         if st.button(t("auth.logout"), use_container_width=True, key="logout_btn"):
             for key in list(ss.keys()):
                 if key != "lang":
@@ -298,9 +306,9 @@ def _render_tools() -> None:
         ss["last_operation_id"] = None
         st.rerun()
 
-    with st.expander("🧹 " + t("dash_title")):
+    with st.expander("🧹 " + t("dash_title"), expanded=False):
         try:
-            stats = get_memory().get_statistics()
+            stats = get_memory().get_statistics(user_id=(ss.get("user") or {}).get("id"))
             st.caption(f"📊 {t('total_operations')}: {stats.get('total_operations', 0)}")
             st.caption(f"📁 {t('total_datasets')}: {stats.get('total_datasets', 0)}")
             st.caption(f"💬 {t('total_sessions')}: {stats.get('total_sessions', 0)}")

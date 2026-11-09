@@ -116,7 +116,8 @@ def _render_statistics() -> None:
     st.markdown(f"### {t('dash_title')}")
 
     try:
-        stats = get_memory().get_statistics()
+        user_id = (st.session_state.get("user") or {}).get("id")
+        stats = get_memory().get_statistics(user_id=user_id)
     except Exception as exc:
         st.warning(f"⚠️ تعذّر تحميل الإحصائيات: {exc}")
         return
@@ -163,7 +164,8 @@ def _render_recent_operations() -> None:
     st.markdown(f"### {t('recent_operations')}")
 
     try:
-        ops = get_memory().list_operations(limit=10)
+        user_id = (st.session_state.get("user") or {}).get("id")
+        ops = get_memory().list_operations(limit=10, user_id=user_id)
     except Exception as exc:
         st.warning(f"⚠️ تعذّر تحميل العمليات: {exc}")
         return
@@ -198,7 +200,8 @@ def _render_top_requests() -> None:
     st.markdown(f"### {t('top_requests')}")
 
     try:
-        tops = get_memory().get_top_requests(limit=10)
+        user_id = (st.session_state.get("user") or {}).get("id")
+        tops = get_memory().get_top_requests(limit=10, user_id=user_id)
     except Exception:
         tops = []
 

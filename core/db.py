@@ -101,6 +101,7 @@ def get_schema_sql(backend: str | None = None) -> str:
         return """
         CREATE TABLE IF NOT EXISTS sessions (
             id BIGSERIAL PRIMARY KEY,
+            user_id BIGINT NOT NULL DEFAULT 0,
             name TEXT NOT NULL,
             metadata TEXT DEFAULT '{}',
             created_at TEXT NOT NULL,
@@ -109,6 +110,7 @@ def get_schema_sql(backend: str | None = None) -> str:
 
         CREATE TABLE IF NOT EXISTS datasets (
             id BIGSERIAL PRIMARY KEY,
+            user_id BIGINT NOT NULL DEFAULT 0,
             session_id BIGINT,
             filename TEXT NOT NULL,
             file_hash TEXT NOT NULL,
@@ -125,6 +127,7 @@ def get_schema_sql(backend: str | None = None) -> str:
 
         CREATE TABLE IF NOT EXISTS operations (
             id BIGSERIAL PRIMARY KEY,
+            user_id BIGINT NOT NULL DEFAULT 0,
             dataset_id BIGINT,
             session_id BIGINT,
             user_request TEXT NOT NULL,
@@ -190,6 +193,7 @@ def get_schema_sql(backend: str | None = None) -> str:
 
     CREATE TABLE IF NOT EXISTS sessions (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL DEFAULT 0,
         name TEXT NOT NULL,
         metadata TEXT DEFAULT '{}',
         created_at TEXT NOT NULL,
@@ -198,6 +202,7 @@ def get_schema_sql(backend: str | None = None) -> str:
 
     CREATE TABLE IF NOT EXISTS datasets (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL DEFAULT 0,
         session_id INTEGER,
         filename TEXT NOT NULL,
         file_hash TEXT NOT NULL,
@@ -214,6 +219,7 @@ def get_schema_sql(backend: str | None = None) -> str:
 
     CREATE TABLE IF NOT EXISTS operations (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL DEFAULT 0,
         dataset_id INTEGER,
         session_id INTEGER,
         user_request TEXT NOT NULL,
@@ -283,6 +289,34 @@ def clear_all_sql(backend: str | None = None) -> str:
         "DELETE FROM feedback; DELETE FROM operations; DELETE FROM datasets; "
         "DELETE FROM sessions; DELETE FROM sqlite_sequence;"
     )
+
+
+def ensure_user_scoping_columns(conn: Any, backend: str | None = None) -> None:
+    """Adds user_id columns to older databases without dropping data."""
+    backend = (backend or get_database_backend()).lower()
+    tables = ("sessions", "datasets", "operations")
+    if backend == "postgresql":
+        for table in tables:
+            row = conn.execute(
+                """
+                SELECT 1
+                FROM information_schema.columns
+                WHERE table_name = %s AND column_name = 'user_id'
+                LIMIT 1
+                """,
+                (table,),
+            ).fetchone()
+            if row is None:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN user_id BIGINT NOT NULL DEFAULT 0")
+        return
+
+    for table in tables:
+        columns = [
+            item[1]
+            for item in conn.execute(f"PRAGMA table_info({table})").fetchall()
+        ]
+        if "user_id" not in columns:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN user_id INTEGER NOT NULL DEFAULT 0")
 
 
 # ============================================================
