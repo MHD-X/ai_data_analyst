@@ -301,10 +301,10 @@ def ensure_user_scoping_columns(conn: Any, backend: str | None = None) -> None:
                 """
                 SELECT 1
                 FROM information_schema.columns
-                WHERE table_name = %s AND column_name = 'user_id'
+                WHERE table_name = %s AND column_name = %s
                 LIMIT 1
                 """,
-                (table,),
+                (table, "user_id"),
             ).fetchone()
             if row is None:
                 conn.execute(f"ALTER TABLE {table} ADD COLUMN user_id BIGINT NOT NULL DEFAULT 0")
