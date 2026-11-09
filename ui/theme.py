@@ -75,21 +75,27 @@ def build_theme_css(lang: str | None = None) -> str:
     }}
 
     [data-testid="stSidebar"] {{
+        position: relative !important;
+        left: auto !important;
+        right: 0 !important;
         background: linear-gradient(180deg, rgba(11, 16, 32, 0.98) 0%, rgba(15, 23, 42, 0.96) 100%);
-        border-right: 1px solid var(--between-border);
-        border-left: 1px solid var(--between-border);
+        border-inline-start: 1px solid var(--between-border) !important;
+        border-inline-end: 0 !important;
+        border-left: 0 !important;
+        border-right: 0 !important;
         box-shadow: inset -1px 0 0 rgba(255,255,255,0.04);
         width: 20rem !important;
         min-width: 15rem !important;
         max-width: 24rem !important;
-        transition: width 0.25s ease, min-width 0.25s ease, max-width 0.25s ease, opacity 0.2s ease;
+        transform: translateX(0);
+        transition: width 0.25s ease, min-width 0.25s ease, max-width 0.25s ease, opacity 0.2s ease, transform 0.25s ease;
         overflow-x: hidden !important;
     }}
 
     [data-testid="stSidebar"] > div:first-child {{
         width: 100%;
         min-width: 0;
-        transition: opacity 0.2s ease, visibility 0.2s ease;
+        transition: opacity 0.2s ease, visibility 0.2s ease, transform 0.2s ease;
     }}
 
     [data-testid="stSidebar"][aria-expanded="false"] {{
@@ -97,12 +103,18 @@ def build_theme_css(lang: str | None = None) -> str:
         min-width: 0 !important;
         max-width: 0 !important;
         opacity: 0;
+        transform: translateX(110%) !important;
+        pointer-events: none;
         overflow: hidden !important;
+        border-inline-start: 0 !important;
+        border-inline-end: 0 !important;
+        box-shadow: none !important;
     }}
 
     [data-testid="stSidebar"][aria-expanded="false"] > div:first-child {{
         opacity: 0;
         visibility: hidden;
+        transform: translateX(12px);
     }}
 
     [data-testid="stSidebar"] .stSelectbox,
