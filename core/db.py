@@ -295,19 +295,21 @@ def ensure_user_scoping_columns(conn: Any, backend: str | None = None) -> None:
     """Adds user_id columns to older databases without dropping data."""
     backend = (backend or get_database_backend()).lower()
     tables = ("sessions", "datasets", "operations")
+    
     if backend == "postgresql":
         for table in tables:
+            # استخدام علامة التعويض المناسبة لنظام الترجمة لديك (غالباً ?)
             row = conn.execute(
                 """
                 SELECT 1
                 FROM information_schema.columns
-                WHERE table_name = %s AND column_name = %s
+                WHERE table_name = ? AND column_name = ?
                 LIMIT 1
                 """,
                 (table, "user_id"),
             ).fetchone()
             if row is None:
-                conn.execute(f"ALTER TABLE {table} ADD COLUMN user_id BIGINT NOT NULL DEFAULT 0")
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS user_id BIGINT NOT NULL DEFAULT 0;")
         return
 
     for table in tables:
@@ -317,7 +319,6 @@ def ensure_user_scoping_columns(conn: Any, backend: str | None = None) -> None:
         ]
         if "user_id" not in columns:
             conn.execute(f"ALTER TABLE {table} ADD COLUMN user_id INTEGER NOT NULL DEFAULT 0")
-
 
 # ============================================================
 # ترجمة الاستعلامات
