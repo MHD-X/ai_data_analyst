@@ -335,64 +335,6 @@ html, body {
     direction: __DIRECTION__ !important;
 }
 
-[data-testid="stHeader"] {
-    background: transparent !important;
-}
-
-[data-testid="stToolbar"],
-[data-testid="stDecoration"],
-[data-testid="stStatusWidget"],
-footer {
-    display: none !important;
-}
-
-[data-testid="stSidebarCollapseButton"] button,
-[data-testid="collapsedControl"] button {
-    width: 2.5rem;
-    height: 2.5rem;
-    border-radius: 999px !important;
-    background: var(--surface-color) !important;
-    border: 1px solid var(--border-color) !important;
-    box-shadow: 0 6px 18px var(--shadow-color);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: transform 160ms ease, background 160ms ease;
-}
-
-[data-testid="stSidebarCollapseButton"] button:hover,
-[data-testid="collapsedControl"] button:hover {
-    background: var(--hover-color) !important;
-    transform: scale(1.06);
-}
-
-[data-testid="stSidebarCollapseButton"] button svg,
-[data-testid="collapsedControl"] button svg {
-    display: none;
-}
-
-[data-testid="stSidebarCollapseButton"] button::after,
-[data-testid="collapsedControl"] button::after {
-    content: "\\2039";
-    font-size: 1.5rem;
-    line-height: 1;
-    color: var(--primary-color);
-}
-
-[data-testid="collapsedControl"] {
-    position: fixed;
-    top: 1rem;
-    inset-inline-start: 1rem;
-    z-index: 1000;
-}
-
-[data-testid="stSidebarCollapseButton"] {
-    position: absolute;
-    top: 1rem;
-    inset-inline-end: -1.25rem;
-    z-index: 1000;
-}
-
 [data-testid="stLogo"] {
     height: 2.5rem !important;
     width: auto !important;

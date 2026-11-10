@@ -6,7 +6,7 @@ import streamlit as st
 
 from config import get_setting
 from core.auth import AuthStore, login, register, request_password_reset, resend_code, reset_password, verify_email
-from utils.i18n import t
+from utils.i18n import is_rtl, t
 
 ROOT = Path(__file__).resolve().parents[1]
 LOGIN_BG_PATH = ROOT / "assets" / "login-bg.jpg"
@@ -39,149 +39,95 @@ def _logout() -> None:
 def _auth_css() -> str:
     is_dark = st.get_option("theme.base") == "dark"
     page_bg = "#121826" if is_dark else "#f3f4f6"
-    form_bg = "#1e1e1e" if is_dark else "#ffffff"
-    form_bg_alt = "#111827" if is_dark else "#f8fafc"
-    border = "#2b2f36" if is_dark else "#e5e7eb"
+    card_bg = "#1f2937" if is_dark else "#ffffff"
+    border = "#374151" if is_dark else "#e5e7eb"
     text = "#f9fafb" if is_dark else "#111827"
-    muted = "#9ca3af" if is_dark else "#6b7280"
+    muted = "#cbd5e1" if is_dark else "#6b7280"
     accent = "#10b981"
-    accent_hover = "#059669"
     return f"""
     <style>
-      header, footer, [data-testid="stHeader"], [data-testid="stToolbar"], [data-testid="stStatusWidget"] {{
-        display: none !important;
-      }}
-      .block-container {{
-        padding: 0 !important;
-        margin: 0 !important;
-        max-width: none !important;
-        width: 100% !important;
-      }}
       .auth-shell {{
-        width: 100vw;
-        margin-left: calc(50% - 50vw);
-        margin-right: calc(50% - 50vw);
-        min-height: 100vh;
-        background: {page_bg};
-      }}
-      .auth-image-box {{
-        width: 100%;
-        height: 100vh;
-        overflow: hidden;
-        background: linear-gradient(135deg, #0f172a 0%, #111827 100%);
-      }}
-      .auth-image-box img {{
-        width: 100%;
-        height: 100vh;
-        object-fit: cover;
-        display: block;
-        border: 0;
-      }}
-      .auth-form-panel {{
-        background: {form_bg};
-        min-height: 100vh;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        padding: clamp(2rem, 5vw, 5rem);
+        max-width: 480px;
+        margin: 2rem auto;
+        padding: 0 1rem;
       }}
       .auth-card {{
-        width: min(100%, 430px);
+        background: {card_bg};
+        border: 1px solid {border};
+        border-radius: 18px;
+        box-shadow: 0 12px 32px rgba(15, 23, 42, 0.12);
+        padding: 1.5rem;
+        color: {text};
       }}
       .auth-badge {{
-        display: inline-flex;
-        align-items: center;
-        gap: 0.5rem;
-        padding: 0.45rem 0.8rem;
+        display: inline-block;
+        padding: 0.4rem 0.7rem;
         border-radius: 999px;
         background: rgba(16, 185, 129, 0.12);
-        color: {accent};
         border: 1px solid rgba(16, 185, 129, 0.2);
-        font-size: 0.78rem;
+        color: {accent};
+        font-size: 0.72rem;
         font-weight: 700;
         letter-spacing: 0.04em;
         text-transform: uppercase;
-        margin-bottom: 1.4rem;
+        margin-bottom: 1rem;
       }}
       .auth-title {{
-        color: {text};
-        font-size: clamp(2.2rem, 3vw, 3rem);
-        line-height: 1.1;
+        font-size: clamp(2rem, 4vw, 2.6rem);
         font-weight: 800;
-        margin-bottom: 0.75rem;
+        line-height: 1.15;
+        margin: 0 0 0.7rem 0;
+        color: {text};
       }}
       .auth-subtitle {{
+        margin: 0 0 1.2rem 0;
         color: {muted};
         font-size: 0.98rem;
-        margin-bottom: 1.5rem;
       }}
-      .auth-subtitle .auth-link-button {{
-        color: {accent};
-        background: transparent;
-        border: none;
-        padding: 0;
-        font-weight: 700;
-        text-decoration: none;
-        cursor: pointer;
+      .auth-row {{
+        display: flex;
+        gap: 0.75rem;
+        margin-top: 0.75rem;
       }}
-      .stTextInput > label, .stNumberInput > label, .stSelectbox > label {{
+      .auth-row > div {{
+        flex: 1 1 0;
+      }}
+      .stTextInput > label,
+      .stNumberInput > label,
+      .stSelectbox > label {{
         color: {text} !important;
         font-weight: 600 !important;
       }}
-      .stTextInput > div > div > input, .stTextArea > div > div > textarea, .stSelectbox > div > div > div {{
-        background: {form_bg_alt} !important;
+      .stTextInput > div > div > input,
+      .stTextArea > div > div > textarea,
+      .stSelectbox > div > div > div {{
+        background: {page_bg} !important;
         border: 1px solid {border} !important;
-        border-radius: 14px !important;
+        border-radius: 12px !important;
         color: {text} !important;
-        min-height: 52px !important;
-        box-shadow: none !important;
+        min-height: 48px !important;
       }}
-      .stTextInput input::placeholder, .stTextArea textarea::placeholder {{
+      .stTextInput input::placeholder,
+      .stTextArea textarea::placeholder {{
         color: {muted} !important;
-      }}
-      .stTextInput > div > div > input:focus, .stTextArea > div > div > textarea:focus {{
-        border-color: {accent} !important;
-        box-shadow: 0 0 0 1px rgba(16, 185, 129, 0.35) !important;
       }}
       .stButton > button {{
         width: 100% !important;
-        border-radius: 14px !important;
-        min-height: 52px !important;
-        border: 1px solid transparent !important;
-        background: {accent} !important;
-        color: #ffffff !important;
+        min-height: 48px !important;
+        border-radius: 12px !important;
         font-weight: 700 !important;
-        box-shadow: 0 12px 25px rgba(16, 185, 129, 0.22) !important;
-        transition: all 0.2s ease !important;
       }}
-      .stButton > button:hover {{
-        background: {accent_hover} !important;
-        transform: translateY(-1px);
-      }}
-      .stButton > button:focus:not(:active) {{
-        box-shadow: 0 0 0 4px rgba(16, 185, 129, 0.18) !important;
-      }}
-      .auth-secondary-row {{
-        display: flex;
-        justify-content: space-between;
-        gap: 0.75rem;
-        margin-top: 1rem;
-      }}
-      .auth-secondary-row .stButton > button {{
-        width: auto !important;
-        min-height: 38px !important;
-        background: transparent !important;
-        color: {accent} !important;
-        border: 1px solid {border} !important;
-        box-shadow: none !important;
-      }}
-      .auth-secondary-row .stButton > button:hover {{
-        background: rgba(16, 185, 129, 0.06) !important;
-      }}
-      @media (max-width: 768px) {{
-        .auth-image-box {{ height: 220px; }}
-        .auth-image-box img {{ height: 220px; }}
-        .auth-form-panel {{ min-height: auto; padding: 1.5rem 1rem 2rem; }}
+      @media (max-width: 640px) {{
+        .auth-shell {{
+          margin: 0.75rem auto;
+          padding: 0 0.5rem;
+        }}
+        .auth-card {{
+          padding: 1.1rem;
+        }}
+        .auth-row {{
+          flex-direction: column;
+        }}
       }}
     </style>
     """
@@ -276,67 +222,55 @@ def render_auth_page() -> None:
     if mode not in {"login", "register", "verify", "reset"}:
         mode = "register"
 
-    left_col, right_col = st.columns([1, 1], gap="small")
+    current_lang = st.session_state.get("lang") or "en"
+    direction = "rtl" if is_rtl(current_lang) else "ltr"
+    st.markdown(f'<div dir="{direction}" class="auth-shell">', unsafe_allow_html=True)
+    st.markdown('<div class="auth-card">', unsafe_allow_html=True)
 
-    with left_col:
-        left_col.markdown('<div class="auth-image-box">', unsafe_allow_html=True)
-        if LOGIN_BG_PATH.exists():
-            left_col.image(str(LOGIN_BG_PATH), use_container_width=True, output_format="JPEG")
-        else:
-            left_col.markdown(
-                '<div style="width:100%;height:100%;background:linear-gradient(135deg, #0f172a 0%, #111827 100%);"></div>',
-                unsafe_allow_html=True,
-            )
-        left_col.markdown('</div>', unsafe_allow_html=True)
+    if mode == "login":
+        st.markdown('<div class="auth-badge">Between Data</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="auth-title">{t("auth.welcome_back")}</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="auth-subtitle">{t("auth.need_account")}</div>', unsafe_allow_html=True)
+        if st.button(t("auth.create_one"), key="switch_to_register", use_container_width=True):
+            st.session_state["auth_mode"] = "register"
+            st.rerun()
+        _render_login_form()
+        if st.button(t("auth.verify_email_short"), key="switch_to_verify", use_container_width=True):
+            st.session_state["auth_mode"] = "verify"
+            st.rerun()
+        if st.button(t("auth.reset_link"), key="switch_to_reset", use_container_width=True):
+            st.session_state["auth_mode"] = "reset"
+            st.rerun()
 
-    with right_col:
-        st.markdown('<div class="auth-form-panel"><div class="auth-card">', unsafe_allow_html=True)
+    elif mode == "verify":
+        st.markdown('<div class="auth-badge">Security</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="auth-title">{t("auth.verify_email")}</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="auth-subtitle">{t("auth.back_to_login")}</div>', unsafe_allow_html=True)
+        if st.button(t("auth.log_in"), key="switch_to_login_from_verify", use_container_width=True):
+            st.session_state["auth_mode"] = "login"
+            st.rerun()
+        _render_verify_form()
 
-        if mode == "login":
-            st.markdown('<div class="auth-badge">Between Data</div>', unsafe_allow_html=True)
-            st.markdown(f'<div class="auth-title">{t("auth.welcome_back")}</div>', unsafe_allow_html=True)
-            st.markdown(f'<div class="auth-subtitle">{t("auth.need_account")}</div>', unsafe_allow_html=True)
-            if st.button(t("auth.create_one"), key="switch_to_register", use_container_width=False):
-                st.session_state["auth_mode"] = "register"
-                st.rerun()
-            _render_login_form()
-            st.markdown('<div class="auth-secondary-row">', unsafe_allow_html=True)
-            if st.button(t("auth.verify_email_short"), key="switch_to_verify", use_container_width=True):
-                st.session_state["auth_mode"] = "verify"
-                st.rerun()
-            if st.button(t("auth.reset_link"), key="switch_to_reset", use_container_width=True):
-                st.session_state["auth_mode"] = "reset"
-                st.rerun()
-            st.markdown('</div>', unsafe_allow_html=True)
+    elif mode == "reset":
+        st.markdown('<div class="auth-badge">Recovery</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="auth-title">{t("auth.reset_password_title")}</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="auth-subtitle">{t("auth.remember_it")}</div>', unsafe_allow_html=True)
+        if st.button(t("auth.log_in"), key="switch_to_login_from_reset", use_container_width=True):
+            st.session_state["auth_mode"] = "login"
+            st.rerun()
+        _render_forgot_form()
 
-        elif mode == "verify":
-            st.markdown('<div class="auth-badge">Security</div>', unsafe_allow_html=True)
-            st.markdown(f'<div class="auth-title">{t("auth.verify_email")}</div>', unsafe_allow_html=True)
-            st.markdown(f'<div class="auth-subtitle">{t("auth.back_to_login")}</div>', unsafe_allow_html=True)
-            if st.button(t("auth.log_in"), key="switch_to_login_from_verify", use_container_width=False):
-                st.session_state["auth_mode"] = "login"
-                st.rerun()
-            _render_verify_form()
+    else:
+        st.markdown('<div class="auth-badge">Between Data</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="auth-title">{t("auth.create_account")}</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="auth-subtitle">{t("auth.already_account")}</div>', unsafe_allow_html=True)
+        if st.button(t("auth.log_in"), key="switch_to_login", use_container_width=True):
+            st.session_state["auth_mode"] = "login"
+            st.rerun()
+        _render_register_form()
 
-        elif mode == "reset":
-            st.markdown('<div class="auth-badge">Recovery</div>', unsafe_allow_html=True)
-            st.markdown(f'<div class="auth-title">{t("auth.reset_password_title")}</div>', unsafe_allow_html=True)
-            st.markdown(f'<div class="auth-subtitle">{t("auth.remember_it")}</div>', unsafe_allow_html=True)
-            if st.button(t("auth.log_in"), key="switch_to_login_from_reset", use_container_width=False):
-                st.session_state["auth_mode"] = "login"
-                st.rerun()
-            _render_forgot_form()
-
-        else:
-            st.markdown('<div class="auth-badge">Between Data</div>', unsafe_allow_html=True)
-            st.markdown(f'<div class="auth-title">{t("auth.create_account")}</div>', unsafe_allow_html=True)
-            st.markdown(f'<div class="auth-subtitle">{t("auth.already_account")}</div>', unsafe_allow_html=True)
-            if st.button(t("auth.log_in"), key="switch_to_login", use_container_width=False):
-                st.session_state["auth_mode"] = "login"
-                st.rerun()
-            _render_register_form()
-
-        st.markdown('</div></div>', unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_allow_html=True)
 
 
 __all__ = ["_logout", "render_auth_page", "render_password_change_required"]
