@@ -54,7 +54,6 @@ st.set_page_config(
 )
 from core.auth import AuthStore, is_authenticated, require_role, session_logout
 from ui import ensure_session, init_state
-from ui.theme import apply_theme
 from utils.i18n import SUPPORTED_LANGS, get_lang, normalize_language, t
 
 logger = logging.getLogger(__name__)
@@ -173,7 +172,6 @@ def main() -> None:
     else:
         st.session_state.pop("admin_bootstrap_error", None)
 
-    apply_theme(get_lang())
     _render_logo_images()
 
     user = st.session_state.get("user")
