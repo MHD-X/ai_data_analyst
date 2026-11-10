@@ -13,6 +13,9 @@ ROOT = Path(__file__).resolve().parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+_LOGO_PATH = ROOT / "assets" / "logo.png"
+_ICON_PATH = ROOT / "assets" / "icon.png"
+
 
 def _force_utf8_std_streams() -> None:
     for name in ("stdout", "stderr"):
@@ -42,23 +45,21 @@ _force_utf8_std_streams()
 
 import streamlit as st
 
-from config import CONFIG, get_setting, validate_config
+from config import CONFIG, validate_config
 
 st.set_page_config(
     page_title=CONFIG.ui.page_title,
-    page_icon=CONFIG.ui.page_icon,
+    page_icon=str(_ICON_PATH),
     layout=CONFIG.ui.layout,
 )
 from core.auth import AuthStore, is_authenticated, require_role, session_logout
 from ui import ensure_session, init_state
 from ui.theme import apply_theme
-from utils.i18n import SUPPORTED_LANGS, get_lang, normalize_language, rtl_css, t
+from utils.i18n import SUPPORTED_LANGS, get_lang, normalize_language, t
 
 logger = logging.getLogger(__name__)
 
 _FORECAST_TAB_LABELS = {"ar": "🔮 التنبؤات", "en": "🔮 Forecast"}
-_LOGO_PATH = ROOT / "assets" / "logo.png"
-_ICON_PATH = ROOT / "assets" / "icon.png"
 
 
 def _streamlit_supports_logo() -> bool:
@@ -216,7 +217,8 @@ def main() -> None:
         st.header(t("sidebar_title"))
         _render("ui.sidebar", "render_sidebar", fallback=_fallback_sidebar)
 
-    st.title(f"{CONFIG.ui.page_icon} {t('app_title')}")
+    _render_main_page_logo()
+    st.title(t("app_title"))
     st.caption(t("app_subtitle"))
 
     ok, errors = validate_config()

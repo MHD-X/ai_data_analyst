@@ -3,7 +3,7 @@ utils/i18n.py — الترجمات ودعم الاتجاه (RTL/LTR)
 Translations and RTL/LTR support for the Streamlit UI.
 
 الاستخدام:
-    from utils.i18n import t, get_lang, rtl_css
+    from utils.i18n import t, get_lang
     st.title(t("app_title"))
     st.write(t("rows_cols", rows=100, cols=5))
 """
@@ -42,6 +42,8 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "file_error": "❌ تعذّرت قراءة الملف: {error}",
         "file_already_known": "ℹ️ هذا الملف رُفع سابقاً، وتم استرجاع سجلّه.",
         "no_file": "لم يتم رفع ملف بعد. ارفع ملفاً من الشريط الجانبي للبدء.",
+        "welcome.title": "مرحباً بك في Between Data",
+        "theme_dark_mode": "الوضع الداكن",
         "rows_cols": "{rows} صف × {cols} عمود",
         "preview": "معاينة البيانات",
         "columns": "الأعمدة",
@@ -214,6 +216,8 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "file_error": "❌ Could not read the file: {error}",
         "file_already_known": "ℹ️ This file was uploaded before; its history was restored.",
         "no_file": "No file uploaded yet. Upload one from the sidebar to begin.",
+        "welcome.title": "Welcome to Between Data",
+        "theme_dark_mode": "Dark mode",
         "rows_cols": "{rows} rows × {cols} columns",
         "preview": "Data preview",
         "columns": "Columns",
@@ -469,30 +473,3 @@ def t(key: str, lang: str | None = None, **kwargs: Any) -> str:
     return text
 
 
-# ============ CSS للاتجاه ============
-_FONT = "'Cairo', 'Segoe UI', Tahoma, sans-serif"
-
-_RTL_CSS = f"""
-@import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800&display=swap');
-.stApp {{ font-family: {_FONT}; }}
-.stApp, [data-testid="stSidebar"], [data-testid="stChatMessage"],
-[data-testid="stMarkdownContainer"], [data-testid="stAlert"],
-[data-testid="stExpander"], [data-testid="stFileUploader"],
-[data-testid="stMetric"], [data-testid="stTab"] {{ direction: rtl; text-align: right; }}
-[data-testid="stChatInput"] textarea {{ direction: rtl; text-align: right; }}
-[data-baseweb="tab-list"] {{ direction: rtl; }}
-/* الكود والجداول والرسوم تبقى LTR */
-pre, code, [data-testid="stCode"], [data-testid="stDataFrame"],
-[data-testid="stTable"], .js-plotly-plot {{ direction: ltr !important; text-align: left !important; }}
-"""
-
-_LTR_CSS = f"""
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
-.stApp {{ font-family: {_FONT}; }}
-"""
-
-
-def rtl_css(lang: str | None = None) -> str:
-    """يعيد وسم <style> مناسباً للغة الحالية."""
-    css = _RTL_CSS if is_rtl(lang) else _LTR_CSS
-    return f"<style>{css}</style>"

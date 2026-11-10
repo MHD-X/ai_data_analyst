@@ -28,6 +28,7 @@ from utils.helpers import (
     hash_file,
     read_data_file,
 )
+from ui.theme import render_theme_toggle
 from utils.i18n import SUPPORTED_LANGS, get_lang, t
 
 MAX_UPLOAD_MB = 25
@@ -336,6 +337,7 @@ def _render_tools() -> None:
 # ============================================================
 def render_sidebar() -> None:
     """يرسم الشريط الجانبي كاملاً. يُستدعى من app.py داخل `with st.sidebar:`."""
+    render_theme_toggle()
     _render_language()
     st.divider()
 

@@ -42,6 +42,7 @@ from core.prompts import (
     validate_generated_code,
 )
 from core.security import temp_csv_for_sandbox
+from ui.theme import render_welcome_card
 from utils.helpers import humanize_duration, truncate_text
 from utils.i18n import t
 
@@ -431,7 +432,7 @@ def render_chat() -> None:
     df = st.session_state.get("df")
 
     if not df_loaded or df is None:
-        st.info(t("no_file"))
+        render_welcome_card(t("no_file"))
         return
 
     # عرض ملخص الملف
