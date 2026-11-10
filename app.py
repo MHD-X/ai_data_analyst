@@ -54,6 +54,7 @@ st.set_page_config(
 )
 from core.auth import AuthStore, is_authenticated, require_role, session_logout, validate_runtime_dependencies
 from ui import ensure_session, init_state
+from ui.theme import apply_theme
 from utils.i18n import SUPPORTED_LANGS, get_lang, normalize_language, t
 
 logger = logging.getLogger(__name__)
@@ -171,6 +172,7 @@ def main() -> None:
     normalized = normalize_language(raw_lang)
     st.session_state["lang"] = normalized
     st.session_state["language"] = normalized
+    apply_theme(lang=normalized)
 
     reason = _bootstrap_once()
     if reason:

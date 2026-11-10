@@ -46,17 +46,38 @@ def build_theme_css(lang: str | None = None, mode: str = THEME_LIGHT) -> str:
     """
 
 
+def _resolve_theme_mode() -> str:
+    mode = st.session_state.get("theme_mode")
+    if mode is None:
+        mode = THEME_DARK if st.session_state.get("theme_dark_toggle") else THEME_LIGHT
+    mode = str(mode).lower()
+    return THEME_DARK if mode == THEME_DARK else THEME_LIGHT
+
+
 def apply_theme(lang: str | None = None) -> None:
-    """No-op: use Streamlit's default native rendering instead of custom layout overrides."""
-    return None
+    """Apply the current theme mode to the active Streamlit session and keep state consistent."""
+    resolved_mode = _resolve_theme_mode()
+    st.session_state["theme_mode"] = resolved_mode
+    st.session_state["theme_dark_toggle"] = resolved_mode == THEME_DARK
+    try:
+        st.set_option("theme.base", resolved_mode)
+    except Exception:
+        pass
+    st.markdown(build_theme_css(lang=lang or st.session_state.get("lang"), mode=resolved_mode), unsafe_allow_html=True)
 
 
 def _on_theme_toggle() -> None:
-    st.session_state["theme_mode"] = THEME_DARK if st.session_state.get("theme_dark_toggle") else THEME_LIGHT
+    mode = THEME_DARK if st.session_state.get("theme_dark_toggle") else THEME_LIGHT
+    st.session_state["theme_mode"] = mode
+    try:
+        st.set_option("theme.base", mode)
+    except Exception:
+        pass
 
 
 def render_theme_toggle() -> None:
     st.session_state.setdefault("theme_mode", THEME_LIGHT)
+    st.session_state.setdefault("theme_dark_toggle", st.session_state["theme_mode"] == THEME_DARK)
     st.toggle(
         t("theme_dark_mode"),
         value=st.session_state["theme_mode"] == THEME_DARK,

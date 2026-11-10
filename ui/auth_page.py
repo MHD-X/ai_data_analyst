@@ -10,6 +10,8 @@ from utils.i18n import is_rtl, t
 
 ROOT = Path(__file__).resolve().parents[1]
 LOGIN_BG_PATH = ROOT / "assets" / "login-bg.jpg"
+LOGO_PATH = ROOT / "assets" / "logo.png"
+ICON_PATH = ROOT / "assets" / "icon.png"
 
 
 def _user_session_payload(user: dict | None) -> dict | None:
@@ -215,7 +217,55 @@ def render_password_change_required(user: dict | None) -> None:
                 st.error(t(result.message_key))
 
 
+def _sync_lang_state() -> None:
+    value = st.session_state.get("language") or st.session_state.get("lang")
+    if value is None:
+        return
+    from utils.i18n import SUPPORTED_LANGS, normalize_language
+
+    normalized = normalize_language(value)
+    if normalized in SUPPORTED_LANGS:
+        st.session_state["lang"] = normalized
+        st.session_state["language"] = normalized
+
+
+def _render_auth_header() -> None:
+    logo = LOGO_PATH if LOGO_PATH.exists() else ICON_PATH if ICON_PATH.exists() else None
+    if logo is not None:
+        logo_col, title_col = st.columns([1, 4])
+        with logo_col:
+            st.image(str(logo), width=64, use_column_width=False)
+        with title_col:
+            st.markdown('<div class="auth-title" style="margin-bottom:0;">Between Data</div>', unsafe_allow_html=True)
+    else:
+        st.markdown('<div class="auth-title" style="margin-bottom:0;">Between Data</div>', unsafe_allow_html=True)
+
+
+def _render_auth_controls() -> None:
+    from utils.i18n import SUPPORTED_LANGS, get_lang
+
+    controls = st.columns([1.3, 1])
+    with controls[0]:
+        current_lang = get_lang()
+        choices = list(SUPPORTED_LANGS)
+        st.selectbox(
+            t("language"),
+            options=choices,
+            index=choices.index(current_lang) if current_lang in choices else 0,
+            format_func=lambda code: SUPPORTED_LANGS[code],
+            key="language",
+            on_change=_sync_lang_state,
+        )
+    with controls[1]:
+        from ui.theme import render_theme_toggle
+
+        render_theme_toggle()
+
+
 def render_auth_page() -> None:
+    from ui.theme import apply_theme
+
+    apply_theme(lang=st.session_state.get("lang") or "en")
     st.markdown(_auth_css(), unsafe_allow_html=True)
 
     mode = st.session_state.get("auth_mode", "register")
@@ -226,10 +276,11 @@ def render_auth_page() -> None:
     direction = "rtl" if is_rtl(current_lang) else "ltr"
     st.markdown(f'<div dir="{direction}" class="auth-shell">', unsafe_allow_html=True)
     st.markdown('<div class="auth-card">', unsafe_allow_html=True)
+    _render_auth_controls()
+    st.markdown("<div style='height: 1rem;'></div>", unsafe_allow_html=True)
 
     if mode == "login":
-        st.markdown('<div class="auth-badge">Between Data</div>', unsafe_allow_html=True)
-        st.markdown(f'<div class="auth-title">{t("auth.welcome_back")}</div>', unsafe_allow_html=True)
+        _render_auth_header()
         st.markdown(f'<div class="auth-subtitle">{t("auth.need_account")}</div>', unsafe_allow_html=True)
         if st.button(t("auth.create_one"), key="switch_to_register", use_container_width=True):
             st.session_state["auth_mode"] = "register"
@@ -243,7 +294,7 @@ def render_auth_page() -> None:
             st.rerun()
 
     elif mode == "verify":
-        st.markdown('<div class="auth-badge">Security</div>', unsafe_allow_html=True)
+        _render_auth_header()
         st.markdown(f'<div class="auth-title">{t("auth.verify_email")}</div>', unsafe_allow_html=True)
         st.markdown(f'<div class="auth-subtitle">{t("auth.back_to_login")}</div>', unsafe_allow_html=True)
         if st.button(t("auth.log_in"), key="switch_to_login_from_verify", use_container_width=True):
@@ -252,7 +303,7 @@ def render_auth_page() -> None:
         _render_verify_form()
 
     elif mode == "reset":
-        st.markdown('<div class="auth-badge">Recovery</div>', unsafe_allow_html=True)
+        _render_auth_header()
         st.markdown(f'<div class="auth-title">{t("auth.reset_password_title")}</div>', unsafe_allow_html=True)
         st.markdown(f'<div class="auth-subtitle">{t("auth.remember_it")}</div>', unsafe_allow_html=True)
         if st.button(t("auth.log_in"), key="switch_to_login_from_reset", use_container_width=True):
@@ -261,7 +312,7 @@ def render_auth_page() -> None:
         _render_forgot_form()
 
     else:
-        st.markdown('<div class="auth-badge">Between Data</div>', unsafe_allow_html=True)
+        _render_auth_header()
         st.markdown(f'<div class="auth-title">{t("auth.create_account")}</div>', unsafe_allow_html=True)
         st.markdown(f'<div class="auth-subtitle">{t("auth.already_account")}</div>', unsafe_allow_html=True)
         if st.button(t("auth.log_in"), key="switch_to_login", use_container_width=True):
