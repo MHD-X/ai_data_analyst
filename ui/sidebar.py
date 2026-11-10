@@ -12,7 +12,6 @@ ui/sidebar.py — الشريط الجانبي
 """
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 import pandas as pd
@@ -21,10 +20,8 @@ import streamlit as st
 from config import UPLOADS_DIR
 from core.db import get_backend_name, get_database_backend, is_deployed_environment
 from core.memory import get_memory
-from core.security import safe_filename
 from utils.helpers import (
     get_dataframe_summary,
-    get_file_size_mb,
     hash_file,
     read_data_file,
 )
@@ -193,6 +190,11 @@ def _handle_upload(uploaded) -> None:
 
 def _render_uploader() -> None:
     ss = st.session_state
+    st.markdown(
+        f'<div class="bd-sidebar-section"><span class="bd-section-kicker">DATA</span>'
+        f'<h3>{t("upload_file")}</h3><p>{t("upload_help")}</p></div>',
+        unsafe_allow_html=True,
+    )
     uploaded = st.file_uploader(
         t("upload_file"),
         type=["csv", "xlsx", "xls"],
@@ -220,7 +222,11 @@ def _render_file_info() -> None:
         return
 
     name = st.session_state.get("dataset_name") or "-"
-    st.markdown(f"**📄 {name}**")
+    st.markdown(
+        f'<div class="bd-file-heading"><span class="bd-file-icon">CSV</span>'
+        f'<strong>{name}</strong></div>',
+        unsafe_allow_html=True,
+    )
 
     summary = get_dataframe_summary(df)
     rows = summary.get("rows", 0)
