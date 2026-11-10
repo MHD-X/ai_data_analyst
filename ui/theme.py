@@ -268,7 +268,8 @@ html, body {
 
 [data-testid="stChatMessage"] {
     background: transparent;
-    padding: 0.25rem 0;
+    padding: 0.35rem 0;
+    direction: __DIRECTION__;
 }
 
 [data-testid="stChatMessage"] [data-testid="stChatMessageContent"] {
@@ -276,13 +277,23 @@ html, body {
     border: 1px solid var(--border-color);
     border-radius: 1.25rem;
     box-shadow: 0 6px 18px var(--shadow-color);
-    padding: 0.75rem 1rem;
+    padding: 0.85rem 1rem;
     color: var(--text-color);
+    line-height: 1.7;
+}
+
+[data-testid="stChatMessage"] [data-testid="stChatMessageContent"] p {
+    margin: 0.15rem 0;
+}
+
+[data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-user"]) {
+    flex-direction: row-reverse;
 }
 
 [data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-user"]) [data-testid="stChatMessageContent"] {
     background: var(--primary-color);
     border-color: transparent;
+    border-start-end-radius: 0.35rem;
     box-shadow: 0 8px 20px color-mix(in srgb, var(--primary-color) 30%, transparent);
 }
 
@@ -290,13 +301,74 @@ html, body {
     color: var(--on-primary) !important;
 }
 
+[data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-assistant"]) [data-testid="stChatMessageContent"] {
+    border-start-start-radius: 0.35rem;
+}
+
 [data-testid="stSidebar"] {
     background: var(--sidebar-color);
-    border-inline-end: 1px solid var(--border-color);
+    border-inline-start: 1px solid var(--border-color);
+    border-inline-end: 0;
+    direction: __DIRECTION__;
+    text-align: __ALIGN__;
+    width: min(22rem, 88vw) !important;
+}
+
+[data-testid="stSidebar"] > div:first-child {
+    width: min(22rem, 88vw) !important;
 }
 
 [data-testid="stSidebarUserContent"] {
     padding: 1.25rem 1rem 2rem;
+}
+
+[data-testid="stSidebarUserContent"] > div {
+    width: 100%;
+}
+
+[data-testid="stSidebar"] .stMarkdown,
+[data-testid="stSidebar"] [data-testid="stCaptionContainer"],
+[data-testid="stSidebar"] label,
+[data-testid="stSidebar"] [data-testid="stMetricLabel"] {
+    text-align: __ALIGN__ !important;
+}
+
+[data-testid="stSidebar"] [data-baseweb="select"] > div,
+[data-testid="stSidebar"] [data-baseweb="input"],
+[data-testid="stSidebar"] [data-testid="stFileUploaderDropzone"] {
+    direction: __DIRECTION__;
+}
+
+[data-testid="stSidebar"] [data-testid="stFileUploaderDropzone"] {
+    padding: 1rem;
+    text-align: center;
+}
+
+[data-testid="stSidebar"] [data-testid="stFileUploaderDropzoneInstructions"] {
+    align-items: center;
+    text-align: center;
+}
+
+[data-testid="stSidebar"] [data-testid="stFileUploaderDropzone"] button {
+    margin-inline: auto;
+}
+
+[data-testid="stSidebar"] [data-testid="stExpander"] {
+    overflow: hidden;
+}
+
+[data-testid="stSidebar"] .stButton > button {
+    width: 100%;
+    justify-content: center;
+}
+
+[data-testid="stSidebar"] [data-testid="stMetric"] {
+    padding: 0.75rem;
+}
+
+[data-testid="stSidebar"] hr {
+    margin: 1rem 0;
+    border-color: var(--border-color);
 }
 
 [data-testid="stHeader"] {
@@ -365,6 +437,61 @@ footer {
 
 .bd-theme-toggle label {
     font-weight: 600;
+}
+
+.bd-sidebar-section {
+    margin: 0.25rem 0 0.75rem;
+}
+
+.bd-sidebar-section .bd-section-kicker {
+    display: block;
+    color: var(--primary-color);
+    font-size: 0.68rem;
+    font-weight: 800;
+    letter-spacing: 0.12em;
+    margin-bottom: 0.2rem;
+}
+
+.bd-sidebar-section h3 {
+    font-size: 1.05rem;
+    margin: 0;
+}
+
+.bd-sidebar-section p {
+    color: var(--muted-color) !important;
+    font-size: 0.78rem;
+    line-height: 1.5;
+    margin: 0.25rem 0 0;
+}
+
+.bd-file-heading {
+    align-items: center;
+    display: flex;
+    gap: 0.6rem;
+    margin: 0.35rem 0 0.75rem;
+    overflow: hidden;
+}
+
+.bd-file-heading strong {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.bd-file-icon {
+    align-items: center;
+    background: var(--hover-color);
+    border: 1px solid color-mix(in srgb, var(--primary-color) 24%, var(--border-color));
+    border-radius: 0.55rem;
+    color: var(--primary-color);
+    display: inline-flex;
+    flex: 0 0 auto;
+    font-size: 0.62rem;
+    font-weight: 800;
+    height: 2rem;
+    justify-content: center;
+    letter-spacing: 0.04em;
+    width: 2rem;
 }
 
 .bd-welcome {
