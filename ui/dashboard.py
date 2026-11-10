@@ -45,6 +45,17 @@ EMPTY_PERIOD_LABELS = {
 }
 
 
+@st.cache_data(show_spinner=False, max_entries=16)
+def _cached_audit(_df, cache_key, date_col, value_col):
+    return audit_dataframe(_df, build_audit_config(_df, date_col=date_col, value_col=value_col))
+
+
+def _audit_key(df, date_col, value_col) -> str:
+    ss = st.session_state
+    uid = (ss.get("user") or {}).get("id")
+    return f"{uid}|{ss.get('data_path')}|{len(df)}|{date_col}|{value_col}"
+
+
 # ============================================================
 # القسم 1: فحص البيانات وملخص الملف الحالي
 # ============================================================
@@ -78,8 +89,7 @@ def _render_current_file() -> None:
     st.markdown(f"#### {t('forecast.data_quality_heading')}")
     try:
         date_col, value_col = _selected_columns(df)
-        cfg = build_audit_config(df, date_col=date_col, value_col=value_col)
-        report = audit_dataframe(df, cfg)
+        report = _cached_audit(df, _audit_key(df, date_col, value_col), date_col, value_col)
         render_audit_report(report)
     except Exception as exc:
         st.warning(t("forecast.audit_error"))
@@ -421,13 +431,19 @@ def render_dashboard(*args: Any, **kwargs: Any) -> None:
                 return
 
     bundle = st.session_state.get("analysis_bundle")
-    if bundle is not None:
-        _render_analysis_panel(bundle)
-
-    _render_current_file()
-    st.divider()
-    _render_statistics()
-    st.divider()
-    _render_recent_operations()
-    st.divider()
-    _render_top_requests()
+    tab_analysis, tab_quality, tab_activity = st.tabs(
+        [t("dash.tab_analysis"), t("dash.tab_quality"), t("dash.tab_activity")]
+    )
+    with tab_analysis:
+        if bundle is not None:
+            _render_analysis_panel(bundle)
+        else:
+            st.info(t("forecast.run_analysis"))
+    with tab_quality:
+        _render_current_file()
+    with tab_activity:
+        _render_statistics()
+        st.divider()
+        _render_recent_operations()
+        st.divider()
+        _render_top_requests()

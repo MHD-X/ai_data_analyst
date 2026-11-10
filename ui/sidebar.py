@@ -21,6 +21,7 @@ import streamlit as st
 from config import UPLOADS_DIR
 from core.db import get_backend_name, get_database_backend, is_deployed_environment
 from core.memory import get_memory
+from core.security import safe_filename
 from utils.helpers import (
     get_dataframe_summary,
     get_file_size_mb,
@@ -28,6 +29,8 @@ from utils.helpers import (
     read_data_file,
 )
 from utils.i18n import SUPPORTED_LANGS, get_lang, t
+
+MAX_UPLOAD_MB = 25
 
 
 # ============================================================
@@ -76,6 +79,8 @@ def _clear_dataframe_from_state() -> None:
     ss["data_path"] = None
     ss["dataset_id"] = None
     ss["dataset_name"] = None
+    ss["uploader_nonce"] = ss.get("uploader_nonce", 0) + 1
+    ss["upload_signature"] = None
     ss["messages"] = []
     ss["last_operation_id"] = None
 
@@ -88,7 +93,6 @@ def _sync_language_state() -> None:
     if value in SUPPORTED_LANGS:
         st.session_state["lang"] = value
         st.session_state["language"] = value
-        st.rerun()
 
 
 def _render_language() -> None:
@@ -109,10 +113,13 @@ def _render_language() -> None:
 # ============================================================
 def _save_uploaded_file(uploaded) -> Path:
     """يحفظ الملف المرفوع على القرص ويعيد مساره."""
-    UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
-    dest = UPLOADS_DIR / uploaded.name
-    with open(dest, "wb") as f:
-        f.write(uploaded.getbuffer())
+    from core.security import safe_filename
+
+    user_id = int((st.session_state.get("user") or {}).get("id") or 0)
+    folder = UPLOADS_DIR / f"u{user_id}"
+    folder.mkdir(parents=True, exist_ok=True)
+    dest = folder / safe_filename(uploaded.name)
+    dest.write_bytes(uploaded.getbuffer())
     return dest
 
 
@@ -182,29 +189,24 @@ def _handle_upload(uploaded) -> None:
         reset_messages=True,
     )
 
-    # 6) تأكيد
-    st.success(t("file_loaded", name=uploaded.name))
-    st.rerun()
-
 
 def _render_uploader() -> None:
+    ss = st.session_state
     uploaded = st.file_uploader(
         t("upload_file"),
         type=["csv", "xlsx", "xls"],
         help=t("upload_help"),
-        key="file_uploader",
+        key=f"file_uploader_{ss.get('uploader_nonce', 0)}",
     )
     if uploaded is None:
         return
-
-    # نمنع إعادة المعالجة لنفس الملف في نفس الجلسة
-    # (استخدمنا اسم + حالة df_loaded للتحقق)
-    last_name = st.session_state.get("dataset_name")
-    df_loaded = st.session_state.get("df_loaded", False)
-
-    if last_name == uploaded.name and df_loaded:
+    if uploaded.size > MAX_UPLOAD_MB * 1024 * 1024:
+        st.error(f"File is larger than {MAX_UPLOAD_MB} MB.")
         return
-
+    signature = f"{uploaded.name}:{uploaded.size}:{getattr(uploaded, 'file_id', '')}"
+    if ss.get("upload_signature") == signature and ss.get("df_loaded"):
+        return
+    ss["upload_signature"] = signature
     _handle_upload(uploaded)
 
 

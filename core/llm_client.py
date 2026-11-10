@@ -132,13 +132,11 @@ class LLMClient:
         retries: int = 2,
         **overrides: Any,
     ) -> str:
-        """
-        يرسل طلب دردشة ويعيد نص الرد الكامل.
-        """
+        """Sends a chat request and returns the response content."""
         payload = self._build_payload(messages, stream=False, **overrides)
         headers = self._build_headers()
-
         last_error: Exception | None = None
+
         for attempt in range(1, retries + 2):
             try:
                 resp = requests.post(
@@ -149,31 +147,23 @@ class LLMClient:
                 )
                 if resp.status_code != 200:
                     self._handle_response_error(resp)
-
-                data = resp.json()
-                return self._extract_content(data)
-
-            except (LLMAuthError, LLMRateLimitError):
+                return self._extract_content(resp.json())
+            except LLMAuthError:
                 raise
             except requests.Timeout as e:
-                last_error = e
-                logger.warning(
-                    "⏱️ مهلة الطلب (محاولة %d/%d)", attempt, retries + 1
-                )
+                last_error = LLMTimeoutError(f"⏱️ انتهت المهلة: {e}")
+                logger.warning("⏱️ انتهت المهلة (محاولة %d/%d): %s", attempt, retries + 1, e)
             except requests.RequestException as e:
-                last_error = e
-                logger.warning(
-                    "🌐 خطأ شبكة (محاولة %d/%d): %s", attempt, retries + 1, e
-                )
+                last_error = LLMError(f"🌐 خطأ شبكة: {e}")
+                logger.warning("🌐 خطأ شبكة (محاولة %d/%d): %s", attempt, retries + 1, e)
             except LLMError as e:
                 last_error = e
-                logger.warning(
-                    "⚠️ خطأ LLM (محاولة %d/%d): %s", attempt, retries + 1, e
-                )
-
+                logger.warning("⚠️ خطأ LLM (محاولة %d/%d): %s", attempt, retries + 1, e)
             if attempt <= retries:
-                time.sleep(1.5 * attempt)
+                time.sleep(min(8.0, 1.5 * 2 ** (attempt - 1)))
 
+        if isinstance(last_error, LLMError):
+            raise last_error
         raise LLMError(f"❌ فشل الطلب بعد {retries + 1} محاولات: {last_error}")
 
 # ============ نهاية الجزء 1/2 — أكمل بالجزء التالي ============

@@ -6,7 +6,7 @@ import logging
 import re
 import secrets
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -39,6 +39,8 @@ from utils.helpers import now_iso
 
 logger = logging.getLogger(__name__)
 
+# Audit fix: verified-email enforcement, neutral timing, and reset protection.
+
 
 def _strip_wrapping_quotes(value: str) -> str:
     value = (value or "").strip()
@@ -66,6 +68,16 @@ def _auth_secret() -> str:
 
 def _hash_code(code: str) -> str:
     return hmac.new(_auth_secret().encode("utf-8"), code.encode("utf-8"), hashlib.sha256).hexdigest()
+
+
+_DUMMY_HASH: str | None = None
+
+
+def _dummy_hash() -> str:
+    global _DUMMY_HASH
+    if _DUMMY_HASH is None:
+        _DUMMY_HASH = _hash_password("dummy-password-for-timing")
+    return _DUMMY_HASH
 
 
 def _verify_code_hash(code: str, stored_hash: str) -> bool:
@@ -145,13 +157,13 @@ def session_login(session_state: dict[str, Any], user: dict[str, Any]) -> None:
     """Store a user payload inside Streamlit session state with a session token."""
     session_state["user"] = user
     session_state["session_token"] = secrets.token_urlsafe(32)
-    session_state["auth_time"] = datetime.utcnow().isoformat()
+    session_state["auth_time"] = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
 
 
 def session_logout(session_state: dict[str, Any]) -> None:
     """Clear all auth-sensitive values from the session state."""
     for key in list(session_state.keys()):
-        if key in {"user", "session_token", "auth_time"}:
+        if key in {"user", "session_token", "auth_time", "last_seen"}:
             del session_state[key]
 
 
@@ -241,7 +253,7 @@ class AuthStore:
         if not created_at:
             return 0
         created_dt = datetime.fromisoformat(created_at)
-        elapsed = (datetime.utcnow() - created_dt).total_seconds()
+        elapsed = (datetime.now(timezone.utc).replace(tzinfo=None) - created_dt).total_seconds()
         return max(0, 60 - int(elapsed))
 
     def _issue_code_for_user(self, email: str, purpose: str) -> str:
@@ -255,7 +267,7 @@ class AuthStore:
             )
             code = str(secrets.randbelow(1_000_000)).zfill(6)
             code_hash = _hash_code(code)
-            expires_at = (datetime.utcnow() + timedelta(minutes=10)).isoformat()
+            expires_at = (datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(minutes=10)).isoformat()
             conn.insert(
                 "INSERT INTO email_codes (user_id, purpose, code_hash, expires_at, attempts, used, created_at) VALUES (%s, %s, %s, %s, 0, 0, %s)",
                 (user["id"], purpose, code_hash, expires_at, now_iso()),
@@ -272,7 +284,7 @@ class AuthStore:
         if int(row.get("attempts", 0)) >= 5:
             return False
         expires_at = row.get("expires_at")
-        if expires_at and datetime.fromisoformat(expires_at) < datetime.utcnow():
+        if expires_at and datetime.fromisoformat(expires_at) < datetime.now(timezone.utc).replace(tzinfo=None):
             return False
         return _verify_code_hash(code, row["code_hash"])
 
@@ -354,7 +366,8 @@ class AuthStore:
         except Exception:
             pass
         user = self.get_user_by_id(user_id)
-        return AuthResult(True, "auth.registration_success", self._user_payload(user or {}), code=code)
+        dev_code = code if get_setting("AUTH_DEV_SHOW_CODE", "0") == "1" else None
+        return AuthResult(True, "auth.registration_success", self._user_payload(user or {}), code=dev_code)
 
     def verify_email(self, email: str, code: str) -> AuthResult:
         email = _normalize_email(email)
@@ -381,13 +394,14 @@ class AuthStore:
         email = _normalize_email(email)
         user = self.get_user_by_email(email)
         if user is None:
+            _verify_password(_dummy_hash(), password)
             return AuthResult(False, "auth.invalid_credentials")
 
         if int(user.get("is_active", 1)) != 1:
             return AuthResult(False, "auth.invalid_credentials")
         if user.get("locked_until"):
             try:
-                if datetime.fromisoformat(user["locked_until"]) > datetime.utcnow():
+                if datetime.fromisoformat(user["locked_until"]) > datetime.now(timezone.utc).replace(tzinfo=None):
                     return AuthResult(False, "auth.account_locked")
             except Exception:
                 pass
@@ -397,7 +411,7 @@ class AuthStore:
             failed_attempts = int(user.get("failed_attempts", 0)) + 1
             lock_until = None
             if failed_attempts >= 5:
-                lock_until = (datetime.utcnow() + timedelta(minutes=5)).isoformat()
+                lock_until = (datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(minutes=5)).isoformat()
             with self._connect() as conn:
                 conn.execute(
                     "UPDATE users SET failed_attempts = %s, locked_until = %s WHERE id = %s",
@@ -405,6 +419,9 @@ class AuthStore:
                 )
                 conn.commit()
             return AuthResult(False, "auth.account_locked" if lock_until else "auth.invalid_credentials")
+
+        if int(user.get("email_verified", 0)) != 1:
+            return AuthResult(False, "auth.email_unverified")
 
         with self._connect() as conn:
             conn.execute(
@@ -439,6 +456,7 @@ class AuthStore:
         if user is None:
             return AuthResult(False, "auth.invalid_credentials")
         if not self._code_is_valid(email, code, "reset"):
+            self._consume_code_attempt(email, code, "reset")
             return AuthResult(False, "auth.invalid_code")
         if not new_password or len(new_password) < 10:
             return AuthResult(False, "auth.password_policy")
@@ -448,7 +466,7 @@ class AuthStore:
         password_hash = _hash_password(new_password)
         with self._connect() as conn:
             conn.execute(
-                "UPDATE users SET password_hash = %s, must_change_password = 0 WHERE id = %s",
+                "UPDATE users SET password_hash = %s, must_change_password = 0, email_verified = 1, failed_attempts = 0, locked_until = NULL WHERE id = %s",
                 (password_hash, user["id"]),
             )
             conn.execute(

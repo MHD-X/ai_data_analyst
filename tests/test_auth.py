@@ -1,3 +1,4 @@
+# Audit fix: auth regression tests for verified-email enforcement and reset throttling.
 import pytest
 
 from core.auth import AuthStore, login, register, request_password_reset, reset_password
@@ -94,6 +95,32 @@ def test_request_reset_and_change_password(auth_store):
     assert reset.ok is True
     assert login("reset@example.com", "StrongPass123", store=auth_store).ok is False
     assert login("reset@example.com", "NewPass456", store=auth_store).ok is True
+
+
+def test_login_requires_verified_email(auth_store):
+    register("verify@example.com", "StrongPass123", "Verified User", store=auth_store)
+
+    result = login("verify@example.com", "StrongPass123", store=auth_store)
+    assert result.ok is False
+    assert result.message_key == "auth.email_unverified"
+
+    code = auth_store._issue_code_for_user("verify@example.com", "verify")
+    assert auth_store.verify_email("verify@example.com", code).ok is True
+    assert login("verify@example.com", "StrongPass123", store=auth_store).ok is True
+
+
+def test_reset_password_counts_failed_attempts(auth_store):
+    register("lockedreset@example.com", "StrongPass123", "Reset User", store=auth_store)
+    auth_store._issue_code_for_user("lockedreset@example.com", "reset")
+
+    for _ in range(5):
+        result = reset_password("lockedreset@example.com", "000000", "NewPass456", store=auth_store)
+        assert result.ok is False
+        assert result.message_key == "auth.invalid_code"
+
+    record = auth_store._latest_code_record("lockedreset@example.com", "reset")
+    assert record is not None
+    assert int(record["attempts"]) >= 5
 
 
 def test_bootstrap_admin_rejects_weak_password_and_returns_reason(monkeypatch, tmp_path):

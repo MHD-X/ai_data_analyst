@@ -52,7 +52,7 @@ class LLMConfig:
     model: str = get_setting("LLM_MODEL", "reka-flash")
     temperature: float = float(get_setting("LLM_TEMPERATURE", "0.2"))
     max_tokens: int = int(get_setting("LLM_MAX_TOKENS", "4096"))
-    timeout: int = int(get_setting("LLM_TIMEOUT", "20"))
+    timeout: int = int(get_setting("LLM_TIMEOUT", "60"))
 
 
 # ============ إعدادات Sandbox ============

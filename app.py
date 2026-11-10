@@ -43,29 +43,18 @@ _force_utf8_std_streams()
 import streamlit as st
 
 from config import CONFIG, get_setting, validate_config
+
+st.set_page_config(
+    page_title=CONFIG.ui.page_title,
+    page_icon=CONFIG.ui.page_icon,
+    layout=CONFIG.ui.layout,
+)
 from core.auth import AuthStore, is_authenticated, require_role, session_logout
 from ui import ensure_session, init_state
 from ui.theme import apply_theme
 from utils.i18n import SUPPORTED_LANGS, get_lang, normalize_language, rtl_css, t
 
 logger = logging.getLogger(__name__)
-
-CUSTOM_CSS = """
-<style>
-#MainMenu {
-    display: none !important;
-}
-footer {
-    display: none !important;
-}
-[data-testid="stDecoration"] {
-    display: none !important;
-}
-[data-testid="stHeader"] {
-    background: transparent !important;
-}
-</style>
-"""
 
 _FORECAST_TAB_LABELS = {"ar": "🔮 التنبؤات", "en": "🔮 Forecast"}
 _LOGO_PATH = ROOT / "assets" / "logo.png"
@@ -85,7 +74,7 @@ def _streamlit_supports_logo() -> bool:
 
 def _render_logo_images() -> bool:
     if not _LOGO_PATH.exists() or not _ICON_PATH.exists():
-        st.warning("Logo image not found. Please add assets/logo.png and assets/icon.png")
+        logger.warning("Logo image not found. Please add assets/logo.png and assets/icon.png")
         return False
 
     if _streamlit_supports_logo():
@@ -107,9 +96,19 @@ def _render_logo_images() -> bool:
 
 def _render_main_page_logo() -> None:
     if not _LOGO_PATH.exists():
-        st.warning("Logo image not found. Please add assets/logo.png and assets/icon.png")
+        logger.warning("Logo image not found. Please add assets/logo.png and assets/icon.png")
         return
     st.image(str(_LOGO_PATH), width=220)
+
+
+@st.cache_resource(show_spinner=False)
+def _bootstrap_once() -> str | None:
+    try:
+        result = AuthStore().bootstrap_admin()
+    except Exception:
+        logger.warning("Admin bootstrap failed", exc_info=True)
+        return "db_error"
+    return result if isinstance(result, str) else None
 
 
 def _render(module_name: str, func_name: str, fallback: Callable[[], None] | None = None) -> None:
@@ -167,19 +166,12 @@ def main() -> None:
     st.session_state["lang"] = normalized
     st.session_state["language"] = normalized
 
-    try:
-        bootstrap_result = AuthStore().bootstrap_admin()
-    except Exception:
-        logger.warning("Admin bootstrap failed unexpectedly during app startup", exc_info=True)
-        bootstrap_result = "db_error"
-
-    if isinstance(bootstrap_result, str):
-        st.session_state["admin_bootstrap_error"] = bootstrap_result
+    reason = _bootstrap_once()
+    if reason:
+        st.session_state["admin_bootstrap_error"] = reason
     else:
         st.session_state.pop("admin_bootstrap_error", None)
 
-    st.markdown(rtl_css(), unsafe_allow_html=True)
-    st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
     apply_theme(get_lang())
     _render_logo_images()
 
@@ -202,6 +194,16 @@ def main() -> None:
         session_logout(st.session_state)
         st.stop()
 
+    from datetime import datetime, timedelta, timezone
+
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    last = st.session_state.get("last_seen")
+    if last and now - last > timedelta(minutes=30):
+        session_logout(st.session_state)
+        st.warning("Session expired. Please sign in again.")
+        st.rerun()
+    st.session_state["last_seen"] = now
+
     try:
         ensure_session()
     except Exception as exc:
@@ -214,7 +216,6 @@ def main() -> None:
         st.header(t("sidebar_title"))
         _render("ui.sidebar", "render_sidebar", fallback=_fallback_sidebar)
 
-    _render_main_page_logo()
     st.title(f"{CONFIG.ui.page_icon} {t('app_title')}")
     st.caption(t("app_subtitle"))
 

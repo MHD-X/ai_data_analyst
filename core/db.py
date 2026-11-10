@@ -135,6 +135,7 @@ def close_postgres_pools() -> None:
 # ============================================================
 # المخطط (Schema)
 # ============================================================
+# Audit fix: hardened DB pooling, WAL SQLite mode, and user-scoping indexes.
 def get_schema_sql(backend: str | None = None) -> str:
     backend = (backend or get_database_backend()).lower()
     if backend == "postgresql":
@@ -162,6 +163,8 @@ def get_schema_sql(backend: str | None = None) -> str:
             FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
         );
 
+        CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
+        CREATE INDEX IF NOT EXISTS idx_datasets_user ON datasets(user_id);
         CREATE INDEX IF NOT EXISTS idx_datasets_hash ON datasets(file_hash);
         CREATE INDEX IF NOT EXISTS idx_datasets_session ON datasets(session_id);
 
@@ -182,6 +185,7 @@ def get_schema_sql(backend: str | None = None) -> str:
             FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
         );
 
+        CREATE INDEX IF NOT EXISTS idx_operations_user ON operations(user_id);
         CREATE INDEX IF NOT EXISTS idx_operations_dataset ON operations(dataset_id);
         CREATE INDEX IF NOT EXISTS idx_operations_success ON operations(success);
         CREATE INDEX IF NOT EXISTS idx_operations_created ON operations(created_at);
@@ -254,6 +258,8 @@ def get_schema_sql(backend: str | None = None) -> str:
         FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
     );
 
+    CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
+    CREATE INDEX IF NOT EXISTS idx_datasets_user ON datasets(user_id);
     CREATE INDEX IF NOT EXISTS idx_datasets_hash ON datasets(file_hash);
     CREATE INDEX IF NOT EXISTS idx_datasets_session ON datasets(session_id);
 
@@ -274,6 +280,7 @@ def get_schema_sql(backend: str | None = None) -> str:
         FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
     );
 
+    CREATE INDEX IF NOT EXISTS idx_operations_user ON operations(user_id);
     CREATE INDEX IF NOT EXISTS idx_operations_dataset ON operations(dataset_id);
     CREATE INDEX IF NOT EXISTS idx_operations_success ON operations(success);
     CREATE INDEX IF NOT EXISTS idx_operations_created ON operations(created_at);
@@ -349,12 +356,24 @@ def ensure_user_scoping_columns(conn: Any, backend: str | None = None) -> None:
             ).fetchone()
             if row is None:
                 conn.execute(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS user_id BIGINT NOT NULL DEFAULT 0;")
+        for index_sql in (
+            "CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);",
+            "CREATE INDEX IF NOT EXISTS idx_datasets_user ON datasets(user_id);",
+            "CREATE INDEX IF NOT EXISTS idx_operations_user ON operations(user_id);",
+        ):
+            conn.execute(index_sql)
         return
 
     for table in tables:
         columns = [item[1] for item in conn.execute(f"PRAGMA table_info({table})").fetchall()]
         if "user_id" not in columns:
             conn.execute(f"ALTER TABLE {table} ADD COLUMN user_id INTEGER NOT NULL DEFAULT 0")
+    for index_sql in (
+        "CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);",
+        "CREATE INDEX IF NOT EXISTS idx_datasets_user ON datasets(user_id);",
+        "CREATE INDEX IF NOT EXISTS idx_operations_user ON operations(user_id);",
+    ):
+        conn.execute(index_sql)
 
 
 # ============================================================
@@ -463,6 +482,61 @@ def execute_sql_script(conn: Any, sql_text: str) -> None:
 # الاتصال
 # ============================================================
 @contextmanager
+def _acquire_pg_connection(
+    database_url: str,
+) -> Iterator[DBConnection]:
+    """Acquire and manage a PostgreSQL connection from the shared pool."""
+    _require_postgres_dependencies()
+    pool = _get_postgres_pool(database_url)
+    conn = None
+    last_error: Exception | None = None
+    for attempt in range(1, CONNECT_RETRIES + 1):
+        try:
+            conn = pool.getconn()
+            if getattr(conn, "closed", 0):
+                pool.putconn(conn, close=True)
+                raise RuntimeError("PostgreSQL connection is stale.")
+            conn.autocommit = False
+            wrapped = DBConnection(conn, "postgresql")
+            try:
+                yield wrapped
+                wrapped.commit()
+            except Exception:
+                wrapped.rollback()
+                raise
+            finally:
+                if conn is not None:
+                    try:
+                        pool.putconn(conn)
+                    except Exception:
+                        pass
+            return
+        except Exception as exc:  # pragma: no cover - retry path
+            last_error = exc
+            if conn is not None:
+                try:
+                    if getattr(conn, "closed", 0):
+                        pool.putconn(conn, close=True)
+                    else:
+                        pool.putconn(conn)
+                except Exception:
+                    pass
+                conn = None
+            if attempt < CONNECT_RETRIES:
+                time.sleep(0.2 * attempt)
+    if conn is not None:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        try:
+            pool.putconn(conn, close=True)
+        except Exception:
+            pass
+    raise RuntimeError(f"Failed to open PostgreSQL connection after {CONNECT_RETRIES} attempts") from last_error
+
+
+@contextmanager
 def get_db_connection(
     db_path: str | Path | None = None,
     database_url: str | None = None,
@@ -473,60 +547,26 @@ def get_db_connection(
     dedicated connection per context. Each call commits on success and rolls back on failure.
     """
     database_url = database_url or get_database_url()
-    backend = "sqlite" if (database_url is None and db_path is not None) else get_database_backend(database_url)
+    if db_path is not None and not database_url:
+        backend = "sqlite"
+    else:
+        backend = get_database_backend(database_url)
 
     if backend == "postgresql":
         if not database_url:
             database_url = normalize_database_url(get_database_url())
         if not database_url:
             raise RuntimeError("DATABASE_URL is not configured.")
-        _require_postgres_dependencies()
+        with _acquire_pg_connection(database_url) as wrapped:
+            yield wrapped
+        return
 
-        pool = _get_postgres_pool(database_url)
-        conn = None
-        last_error: Exception | None = None
-        for attempt in range(1, CONNECT_RETRIES + 1):
-            try:
-                conn = pool.getconn()
-                conn.autocommit = False
-                wrapped = DBConnection(conn, "postgresql")
-                try:
-                    yield wrapped
-                    wrapped.commit()
-                except Exception:
-                    wrapped.rollback()
-                    raise
-                finally:
-                    if conn is not None:
-                        try:
-                            pool.putconn(conn)
-                        except Exception:
-                            pass
-                return
-            except Exception as exc:  # pragma: no cover - retry path
-                last_error = exc
-                if conn is not None:
-                    try:
-                        pool.putconn(conn)
-                    except Exception:
-                        pass
-                    conn = None
-                time.sleep(0.2 * attempt)
-        if conn is not None:
-            try:
-                conn.rollback()
-            except Exception:
-                pass
-            try:
-                pool.putconn(conn)
-            except Exception:
-                pass
-        raise RuntimeError(f"Failed to open PostgreSQL connection after {CONNECT_RETRIES} attempts") from last_error
-        
     sqlite_path = Path(db_path or os.getenv("DB_PATH") or "data/memory.db")
     sqlite_path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(sqlite_path), timeout=30)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON")
+    conn.execute("PRAGMA journal_mode = WAL")
     wrapped = DBConnection(conn, "sqlite")
     try:
         yield wrapped
@@ -535,7 +575,10 @@ def get_db_connection(
         wrapped.rollback()
         raise
     finally:
-        conn.close()
+        try:
+            conn.close()
+        except Exception:
+            pass
 
 
 @contextmanager

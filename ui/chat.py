@@ -41,6 +41,7 @@ from core.prompts import (
     parse_llm_response,
     validate_generated_code,
 )
+from core.security import temp_csv_for_sandbox
 from utils.helpers import humanize_duration, truncate_text
 from utils.i18n import t
 
@@ -183,10 +184,8 @@ def _run_pipeline(user_request: str, status: Any) -> dict[str, Any]:
     # 5) التنفيذ في الـ sandbox
     status.update(label=t("executing"))
     try:
-        result = get_executor().execute(
-            parsed.code,
-            data_path=ss.get("data_path"),
-        )
+        with temp_csv_for_sandbox(ss["df"]) as tmp_csv:
+            result = get_executor().execute(parsed.code, data_path=tmp_csv)
     except UnsafeCodeError as exc:
         op_id = _log(
             user_request, parsed.code, "", False, 0.0,

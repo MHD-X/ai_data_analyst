@@ -1,22 +1,26 @@
 from __future__ import annotations
 
+import re
+
 import pandas as pd
 
 from core.data_audit import AuditConfig
 from core.forecasting import detect_date_columns
 
+_ID_RE = re.compile(r"(^|[^a-z])id($|[^a-z])|معرف|رقم", re.IGNORECASE)
+
 
 def _id_column_candidates(df: pd.DataFrame) -> list[str]:
     candidates: list[tuple[float, int, str]] = []
     for col in df.columns:
-        name = str(col).lower()
-        if not any(token in name for token in ("id", "معرف", "رقم")):
+        name = str(col)
+        if not _ID_RE.search(name):
             continue
         s = df[col].dropna()
         if s.empty:
             continue
         uniqueness = float(s.nunique() / len(s))
-        candidates.append((uniqueness, len(str(col)), str(col)))
+        candidates.append((uniqueness, len(name), name))
     candidates.sort(key=lambda item: (-item[0], -item[1], item[2]))
     return [col for _, _, col in candidates]
 
@@ -26,7 +30,7 @@ def build_audit_config(
     date_col: str | None = None,
     value_col: str | None = None,
 ) -> AuditConfig:
-    """Creates a deterministic audit configuration for the current dataframe."""
+    """Pick the canonical date/id/metric columns for an audit."""
     if df is None or df.empty:
         return AuditConfig()
 
@@ -36,27 +40,26 @@ def build_audit_config(
     else:
         date_cols = [str(col) for col in detect_date_columns(df)]
 
-    id_col = None
     id_candidates = _id_column_candidates(df)
-    if id_candidates:
-        id_col = id_candidates[0]
+    id_col = id_candidates[0] if id_candidates else None
 
-    numeric_cols = [
-        str(col)
-        for col in df.columns
-        if pd.api.types.is_numeric_dtype(df[col]) and str(col) != str(id_col)
-    ]
-
-    chosen_metric = None
+    metric = None
     if value_col is not None and str(value_col) in df.columns:
-        chosen_metric = str(value_col)
-    elif numeric_cols:
-        chosen_metric = numeric_cols[0]
+        metric = str(value_col)
+    else:
+        for col in df.columns:
+            name = str(col)
+            if name == str(id_col):
+                continue
+            if pd.api.types.is_numeric_dtype(df[col]):
+                metric = name
+                break
 
-    required = list(dict.fromkeys([*date_cols, *( [chosen_metric] if chosen_metric else [] )]))
+    numeric_cols = tuple([metric]) if metric else ()
+    required_cols = list(dict.fromkeys([*date_cols, *numeric_cols]))
     return AuditConfig(
         date_cols=tuple(date_cols),
-        numeric_cols=tuple(numeric_cols),
-        required_cols=tuple(required),
+        numeric_cols=numeric_cols,
+        required_cols=tuple(required_cols),
         id_col=id_col,
     )

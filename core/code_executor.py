@@ -44,6 +44,7 @@ from utils.column_matcher import (
 
 logger = logging.getLogger(__name__)
 
+# Audit fix: tightened sandbox checks, safe child env, and path-blocking guards.
 
 # ============================================================
 # نماذج البيانات
@@ -99,6 +100,58 @@ class ExecutionTimeoutError(CodeExecutorError):
 # ============================================================
 class CodeExecutor:
     """منفّذ كود Python آمن."""
+
+    BLOCKED_NAMES: frozenset[str] = frozenset({"open","getattr","setattr","delattr","vars","dir","globals","locals","breakpoint","input","help","memoryview","__import__","eval","exec","compile"})
+    BLOCKED_ATTRS: frozenset[str] = frozenset({
+        "read_csv","read_excel","read_pickle","read_parquet","read_json","read_html",
+        "read_sql","read_table","read_feather","read_hdf","read_fwf","read_xml",
+        "read_clipboard","to_pickle","to_parquet","to_excel","to_sql","to_hdf",
+        "to_feather","to_clipboard","to_xml","write_html","write_image","write_json",
+        "load","loadtxt","genfromtxt","fromfile","tofile","save","savez","savetxt",
+        "os","sys","modules","builtins","subprocess","popen","system","importlib",
+        "eval","query"})
+    PATH_TAKING_ATTRS: frozenset[str] = frozenset({"to_csv","to_json","to_html","to_markdown","to_latex"})
+    _SAFE_ENV_KEYS = ("PATH","SYSTEMROOT","TEMP","TMP","TMPDIR","HOME","USERPROFILE","LANG","LC_ALL")
+
+    @classmethod
+    def _child_env(cls) -> dict[str, str]:
+        env = {key: value for key, value in os.environ.items() if key in cls._SAFE_ENV_KEYS}
+        env["PYTHONIOENCODING"] = "utf-8"
+        env["PYTHONUTF8"] = "1"
+        env["PYTHONDONTWRITEBYTECODE"] = "1"
+        env["PYTHONLEGACYWINDOWSSTDIO"] = "0"
+        return env
+
+    @staticmethod
+    def _limit_resources() -> None:
+        if os.name != "posix":
+            return
+        try:
+            import resource
+
+            memory_limit = CONFIG.sandbox.max_memory_mb * 1024 * 1024 * 2
+            file_limit = 10 * 1024 * 1024
+            resource.setrlimit(resource.RLIMIT_AS, (memory_limit, memory_limit))
+            resource.setrlimit(resource.RLIMIT_FSIZE, (file_limit, file_limit))
+        except Exception:
+            pass
+
+    @staticmethod
+    def _load_frame(path: str | Path | None) -> Any | None:
+        if path is None:
+            return None
+        frame_path = Path(path)
+        if not frame_path.exists():
+            return None
+        try:
+            suffix = frame_path.suffix.lower()
+            if suffix == ".csv":
+                return __import__("pandas").read_csv(frame_path)
+            if suffix in {".xlsx", ".xls"}:
+                return __import__("pandas").read_excel(frame_path)
+        except Exception:
+            return None
+        return None
 
     # أنماط خطيرة في الكود المصدري (regex)
     DANGEROUS_PATTERNS: tuple[tuple[str, str], ...] = (
@@ -166,13 +219,25 @@ class CodeExecutor:
                 for alias in node.names:
                     self._check_module(alias.name)
             elif isinstance(node, ast.ImportFrom):
+                if node.level:
+                    raise UnsafeCodeError("🚫 relative imports are not allowed")
                 if node.module:
                     self._check_module(node.module)
+            elif isinstance(node, ast.Attribute):
+                if node.attr.startswith("__") or node.attr in self.BLOCKED_ATTRS:
+                    raise UnsafeCodeError(f"🚫 كود غير آمن: attribute '{node.attr}'")
+            elif isinstance(node, ast.Name):
+                if node.id in self.BLOCKED_NAMES or (node.id.startswith("_") and node.id not in {"_", "__name__"}):
+                    raise UnsafeCodeError(f"🚫 كود غير آمن: name '{node.id}'")
             elif isinstance(node, ast.Call):
                 self._check_call(node)
 
     def _check_call(self, node: ast.Call) -> None:
-        """فحص open() للكتابة."""
+        """فحص المكالمات الضارة والكتابة إلى المسار."""
+        if isinstance(node.func, ast.Attribute) and node.func.attr in self.PATH_TAKING_ATTRS:
+            if node.args or any(k.arg in {"path_or_buf", "path", "buf", "fname"} for k in node.keywords):
+                raise UnsafeCodeError(f"🚫 {node.func.attr}() with a path/buffer is not allowed")
+
         func = node.func
         is_open = (
             (isinstance(func, ast.Name) and func.id == "open")
@@ -230,7 +295,7 @@ class CodeExecutor:
             def _replace(match: re.Match[str]) -> str:
                 raw_name = match.group("name")
                 resolved = resolve_column(df, raw_name, cutoff=0.55)
-                if resolved is None:
+                if resolved is None or any(ch in resolved for ch in "'\"\\\n\r"):
                     return match.group(0)
                 return f"{match.group('prefix')}{resolved}{match.group('suffix')}"
 
@@ -258,6 +323,7 @@ else:
 """
 
         user_code_literal = repr(user_code)
+        allowed_modules = tuple(self.allowed_modules)
 
         script = f'''
 # ===== [إصلاح UnicodeEncodeError] إجبار stdout/stderr على UTF-8 =====
@@ -297,77 +363,38 @@ import plotly.express as px
 import plotly.graph_objects as go
 import plotly.io as pio
 
-ROOT = {str(Path(__file__).resolve().parents[2])!r}
-if ROOT not in _sys.path:
-    _sys.path.insert(0, ROOT)
+_ALLOWED_ROOTS = {allowed_modules!r}
+import builtins as _b
 
-from utils.column_matcher import resolve_column
+def _guarded_import(name, globals=None, locals=None, fromlist=(), level=0):
+    if level != 0 or name.split(".")[0] not in _ALLOWED_ROOTS:
+        raise ImportError("module not allowed: " + name)
+    return _b.__import__(name, globals, locals, fromlist, level)
 
-
-def _rewrite_dataframe_reference(code: str, frame):
-    if not code or frame is None or getattr(frame, "empty", True):
-        return code
-    result = code
-    patterns = (
-        r"(?P<prefix>\b(?:df|data|dataset|frame)\s*\[\s*\[\s*[\'\"])(?P<name>[^\'\"]+)(?P<suffix>[\'\"]\s*\]\s*\])",
-        r"(?P<prefix>\b(?:df|data|dataset|frame)\s*\[\s*[\'\"])(?P<name>[^\'\"]+)(?P<suffix>[\'\"]\s*\])",
-        r"(?P<prefix>\b(?:df|data|dataset|frame)\s*\.loc\s*\[\s*[:,\s]*[\'\"])(?P<name>[^\'\"]+)(?P<suffix>[\'\"]\s*\])",
-        r"(?P<prefix>\b(?:df|data|dataset|frame)\s*\.groupby\s*\(\s*[\'\"])(?P<name>[^\'\"]+)(?P<suffix>[\'\"]\s*\))",
-        r"(?P<prefix>\b(?:df|data|dataset|frame)\s*\.sort_values\s*\(\s*[\'\"])(?P<name>[^\'\"]+)(?P<suffix>[\'\"]\s*\))",
-        r"(?P<prefix>\b(?:df|data|dataset|frame)\s*\.drop\s*\(\s*columns\s*=\s*\[\s*[\'\"])(?P<name>[^\'\"]+)(?P<suffix>[\'\"]\s*\])",
-    )
-    for pattern in patterns:
-        def _replace(match):
-            raw_name = match.group("name")
-            resolved = resolve_column(frame, raw_name, cutoff=0.55)
-            if resolved is None:
-                return match.group(0)
-            return f"{match.group('prefix')}{resolved}{match.group('suffix')}"
-
-        result = re.sub(pattern, _replace, result)
-    return result
+_SAFE_NAMES = (
+    "abs","all","any","bool","dict","enumerate","filter","float","int","isinstance",
+    "len","list","map","max","min","pow","print","range","reversed","round","set",
+    "slice","sorted","str","sum","tuple","zip","divmod","hash","iter","next","repr",
+    "format","bytes","frozenset","complex","chr","ord","hasattr","issubclass","callable",
+    "object","super","type","property","staticmethod","classmethod","__build_class__",
+    "Exception","ValueError","KeyError","TypeError","IndexError","ZeroDivisionError",
+    "ArithmeticError","AttributeError","RuntimeError","StopIteration",
+)
+_ns_builtins = {{n: getattr(_b, n) for n in _SAFE_NAMES}}
+_ns_builtins["__import__"] = _guarded_import
+_ns = {{"__builtins__": _ns_builtins, "__name__": "__sandbox__",
+       "pd": pd, "np": np, "px": px, "go": go, "pio": pio}}
+if "df" in globals():
+    _ns["df"] = df
 
 # ===== تحميل البيانات =====
 {data_loading}
 
 # ===== كود المستخدم =====
 _user_code = {user_code_literal}
-if 'df' in globals() and globals()['df'] is not None:
-    _user_code = _rewrite_dataframe_reference(_user_code, globals()['df'])
 
 try:
-    exec(compile(_user_code, "<user_code>", "exec"), globals())
-except KeyError as _e:
-    missing = None
-    try:
-        missing = re.search(r"['\"]([^'\"]+)['\"]", str(_e)).group(1)
-    except Exception:
-        missing = None
-
-    if 'df' in globals() and globals()['df'] is not None and missing:
-        _resolved = resolve_column(globals()['df'], missing, cutoff=0.55)
-        if _resolved:
-            _user_code = _rewrite_dataframe_reference(_user_code, globals()['df'])
-            try:
-                exec(compile(_user_code, "<user_code>", "exec"), globals())
-            except Exception as _retry_error:
-                _error_info = {
-                    "type": type(_retry_error).__name__,
-                    "message": str(_retry_error),
-                    "traceback": traceback.format_exc(),
-                }
-                print("__EXECUTION_ERROR__")
-                print(json.dumps(_error_info, default=str, ensure_ascii=False))
-                _sys.exit(0)
-    else:
-        _error_info = {
-            "type": type(_e).__name__,
-            "message": str(_e),
-            "traceback": traceback.format_exc(),
-        }
-        print("__EXECUTION_ERROR__")
-        print(json.dumps(_error_info, default=str, ensure_ascii=False))
-        _sys.exit(0)
+    exec(compile(_user_code, "<user_code>", "exec"), _ns)
 except Exception as _e:
     _error_info = {
         "type": type(_e).__name__,
@@ -386,10 +413,11 @@ _skip_names = {{
     "pd", "np", "px", "go", "pio", "json", "traceback", "warnings",
     "_exports", "_figures_json", "_skip_names", "_e", "_error_info",
     "_user_code", "_data_path", "_name", "_value", "_f",
-    "_io", "_sys", "_force_utf8",
+    "_io", "_sys", "_force_utf8", "_b", "_ns", "_ns_builtins",
+    "_guarded_import", "_SAFE_NAMES", "_ALLOWED_ROOTS",
 }}
 
-for _name, _value in list(globals().items()):
+for _name, _value in list(_ns.items()):
     if _name.startswith("_") or _name in _skip_names:
         continue
 
@@ -456,56 +484,29 @@ print(json.dumps(_result, default=str, ensure_ascii=False))
 
         if data_path is not None:
             data_path = Path(data_path).resolve()
+        data_path_str = str(data_path) if data_path else None
+        code = self._rewrite_dataframe_column_references(code, self._load_frame(data_path))
 
-        # 1. فحص ثابت
         try:
             self._static_check(code)
         except UnsafeCodeError as e:
-            result.error = str(e)
-            result.error_type = "UnsafeCodeError"
+            result.error, result.error_type = str(e), "UnsafeCodeError"
             result.execution_time = time.time() - start_time
             logger.warning("🚫 كود مرفوض: %s", e)
             return result
         except CodeExecutorError as e:
-            result.error = str(e)
-            result.error_type = "SyntaxError"
+            result.error, result.error_type = str(e), "SyntaxError"
             result.execution_time = time.time() - start_time
             return result
 
-        # 2. بناء السكربت
-        data_path_str = str(data_path) if data_path else None
-        if data_path is not None and Path(data_path).exists():
-            try:
-                import pandas as pd
-
-                if str(data_path).lower().endswith(".csv"):
-                    resolved_df = pd.read_csv(data_path)
-                elif str(data_path).lower().endswith((".xlsx", ".xls")):
-                    resolved_df = pd.read_excel(data_path)
-                else:
-                    resolved_df = None
-                code = self._rewrite_dataframe_column_references(code, resolved_df)
-            except Exception:
-                pass
         runner_script = self._build_runner_script(code, data_path_str)
 
-        # 3. كتابة السكربت في ملف مؤقت
         tmp_dir = DATA_DIR / "temp"
         tmp_dir.mkdir(parents=True, exist_ok=True)
         script_file = tmp_dir / f"run_{uuid.uuid4().hex[:8]}.py"
 
         try:
             script_file.write_text(runner_script, encoding="utf-8")
-
-            # ============================================================
-            # [إصلاح UnicodeEncodeError] إجبار subprocess على UTF-8
-            # ============================================================
-            child_env = os.environ.copy()
-            child_env["PYTHONIOENCODING"] = "utf-8"
-            child_env["PYTHONUTF8"] = "1"
-            # على Windows: بعض إصدارات Python تحتاج هذا أيضاً
-            child_env["PYTHONLEGACYWINDOWSSTDIO"] = "0"
-
             proc = subprocess.run(
                 [sys.executable, str(script_file)],
                 capture_output=True,
@@ -513,11 +514,11 @@ print(json.dumps(_result, default=str, ensure_ascii=False))
                 timeout=self.timeout,
                 encoding="utf-8",
                 errors="replace",
-                cwd=str(DATA_DIR),
-                env=child_env,
+                cwd=str(DATA_DIR / "temp"),
+                env=self._child_env(),
+                preexec_fn=self._limit_resources if os.name == "posix" else None,
             )
 
-            # 5. تحليل المخرجات
             stdout = proc.stdout or ""
             stderr = proc.stderr or ""
 

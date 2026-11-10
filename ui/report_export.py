@@ -1,5 +1,5 @@
 """
-core/report_export.py — تصدير تقرير التنبؤ (Excel منسّق + PDF عربي)
+ui/report_export.py — تصدير تقرير التنبؤ (Excel منسّق + PDF عربي)
 
 المتطلبات: xlsxwriter, reportlab, matplotlib, arabic-reshaper, python-bidi
 الخط: يُستخدم DejaVu Sans المرفق مع matplotlib (يدعم العربية دون إعداد).
@@ -22,6 +22,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 import pandas as pd
+import streamlit as st
 
 from core.anomaly import AnomalyResult
 from core.data_audit import AuditReport, neutralize_formulas
@@ -452,40 +453,48 @@ def render_report_downloads(bundle: dict[str, Any] | ReportBundle | None) -> Non
     try:
         report = _report_bundle_from_state(bundle)
     except Exception as exc:
-        st = __import__("streamlit")
         st.warning(f"تعذّر تجهيز تقرير التصدير: {exc}")
         return
 
-    import streamlit as st
+    key = f"{report.metric}|{report.generated_at}|{len(report.series)}"
+    cache = st.session_state.setdefault("_report_files", {})
+    if cache.get("key") != key:
+        cache.clear()
+        cache["key"] = key
+        for name, builder in (("xlsx", build_excel_report), ("pdf", build_pdf_report)):
+            try:
+                cache[name] = builder(report)
+            except Exception as exc:
+                cache[name] = exc
 
     st.markdown("### ⬇️ تصدير التقرير")
     col1, col2, col3 = st.columns(3)
 
-    try:
-        excel_bytes = build_excel_report(report)
+    excel_value = cache.get("xlsx")
+    if isinstance(excel_value, Exception):
+        col1.warning(f"Excel غير متاح: {excel_value}")
+    else:
         col1.download_button(
             "📘 Excel",
-            data=excel_bytes,
+            data=excel_value,
             file_name=f"forecast_report_{datetime.now():%Y%m%d_%H%M%S}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True,
             key="btn_download_excel_report",
         )
-    except Exception as exc:
-        col1.warning(f"Excel غير متاح: {exc}")
 
-    try:
-        pdf_bytes = build_pdf_report(report)
+    pdf_value = cache.get("pdf")
+    if isinstance(pdf_value, Exception):
+        col2.warning(f"PDF غير متاح: {pdf_value}")
+    else:
         col2.download_button(
             "📄 PDF",
-            data=pdf_bytes,
+            data=pdf_value,
             file_name=f"forecast_report_{datetime.now():%Y%m%d_%H%M%S}.pdf",
             mime="application/pdf",
             use_container_width=True,
             key="btn_download_pdf_report",
         )
-    except Exception as exc:
-        col2.warning(f"PDF غير متاح: {exc}")
 
     forecast_csv = report.result.forecast.reset_index().rename(columns={"index": "التاريخ"}).to_csv(index=False, encoding="utf-8-sig")
     col3.download_button(

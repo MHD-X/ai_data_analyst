@@ -151,7 +151,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "forecast.no_anomalies": "لم تُرصد قيم شاذة في السلسلة التاريخية.",
         "stats_load_error": "⚠️ تعذّر تحميل الإحصائيات: {error}",
         "ops_load_error": "⚠️ تعذّر تحميل العمليات: {error}",
-        "forecast.summary_panel": "### 🔮 التنبؤ والملخص التنفيذي",
+        "forecast.summary_panel": "🔮 التنبؤ والملخص التنفيذي",
         "forecast.model_label": "النموذج",
         "forecast.average_prediction": "متوسط التنبؤ",
         "forecast.last_value": "آخر قيمة",
@@ -172,6 +172,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "auth.verification_code": "رمز التفعيل",
         "auth.auth_intro": "أنشئ حسابك أو سجل الدخول للمتابعة.",
         "auth.invalid_email": "البريد الإلكتروني غير صالح.",
+        "auth.invalid_password": "كلمة المرور الحالية غير صحيحة.",
         "auth.invalid_credentials": "بيانات الدخول غير صحيحة.",
         "auth.email_unverified": "الحساب غير مفعّل. يرجى تفعيل البريد الإلكتروني أولاً.",
         "auth.account_locked": "الحساب مُغلق مؤقتاً بسبب محاولات فاشلة. حاول مرة أخرى لاحقاً.",
@@ -330,7 +331,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "forecast.no_anomalies": "No anomalies were detected in the time series.",
         "stats_load_error": "⚠️ Failed to load statistics: {error}",
         "ops_load_error": "⚠️ Failed to load operations: {error}",
-        "forecast.summary_panel": "### 🔮 Forecast and executive summary",
+        "forecast.summary_panel": "🔮 Forecast and executive summary",
         "forecast.model_label": "Model",
         "forecast.average_prediction": "Average forecast",
         "forecast.last_value": "Last value",
@@ -351,6 +352,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "auth.verification_code": "Verification code",
         "auth.auth_intro": "Create your account or sign in to continue.",
         "auth.invalid_email": "The email address is invalid.",
+        "auth.invalid_password": "The current password is incorrect.",
         "auth.invalid_credentials": "Invalid credentials.",
         "auth.email_unverified": "This account is not verified yet. Please verify your email first.",
         "auth.account_locked": "This account is temporarily locked due to repeated failed attempts. Try again later.",
@@ -373,8 +375,17 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "auth.admin_bootstrap_failed_password_policy": "Admin bootstrap failed: password does not meet policy (min 10 chars, must not contain the email name)",
         "auth.admin_bootstrap_failed_invalid_email": "Admin bootstrap failed: email format is invalid.",
         "auth.admin_bootstrap_failed_db_error": "Admin bootstrap failed: database error.",
+        "dash.tab_analysis": "🔮 Analysis",
+        "dash.tab_quality": "🛡️ Data quality",
+        "dash.tab_activity": "🕘 Activity",
     },
 }
+
+TRANSLATIONS["ar"].update({
+    "dash.tab_analysis": "🔮 التحليل",
+    "dash.tab_quality": "🛡️ جودة البيانات",
+    "dash.tab_activity": "🕘 النشاط",
+})
 
 
 def normalize_language(lang: str | None) -> str:
