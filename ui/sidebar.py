@@ -45,45 +45,25 @@ def _set_dataframe_in_state(
     dataset_id: int | None = None,
     reset_messages: bool = False,
 ) -> None:
-    """
-    يخزّن DataFrame في session_state (المصدر الوحيد للحقيقة).
-    استدعها بعد أي رفع/اختيار ملف.
+    """Delegates all data-set state mutation to the canonical UI state helper."""
+    from ui import set_dataframe
 
-    Args:
-        df: DataFrame أو None
-        path: مسار الملف على القرص
-        name: اسم الملف الأصلي
-        dataset_id: معرّف dataset في الذاكرة
-        reset_messages: هل نُصفّر المحادثة؟
-    """
-    ss = st.session_state
-    ss["df"] = df
-    ss["df_loaded"] = df is not None and not (
-        hasattr(df, "empty") and df.empty
+    set_dataframe(
+        df,
+        path=path,
+        name=name,
+        dataset_id=dataset_id,
+        reset_messages=reset_messages,
     )
-    if path is not None:
-        ss["data_path"] = path
-    if name is not None:
-        ss["dataset_name"] = name
-    if dataset_id is not None:
-        ss["dataset_id"] = dataset_id
-    if reset_messages:
-        ss["messages"] = []
-        ss["last_operation_id"] = None
 
 
 def _clear_dataframe_from_state() -> None:
-    """يحذف DataFrame من session_state."""
-    ss = st.session_state
-    ss["df"] = None
-    ss["df_loaded"] = False
-    ss["data_path"] = None
-    ss["dataset_id"] = None
-    ss["dataset_name"] = None
-    ss["uploader_nonce"] = ss.get("uploader_nonce", 0) + 1
-    ss["upload_signature"] = None
-    ss["messages"] = []
-    ss["last_operation_id"] = None
+    """Delegates state cleanup to the canonical UI state helper."""
+    from ui import clear_dataframe
+
+    clear_dataframe()
+    st.session_state["uploader_nonce"] = st.session_state.get("uploader_nonce", 0) + 1
+    st.session_state["upload_signature"] = None
 
 
 # ============================================================

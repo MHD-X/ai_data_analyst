@@ -84,9 +84,17 @@ def _verify_code_hash(code: str, stored_hash: str) -> bool:
     return hmac.compare_digest(_hash_code(code), stored_hash)
 
 
-def _password_hasher() -> PasswordHasher:
+def validate_runtime_dependencies() -> None:
+    """Fail early with a clear message when required auth dependencies are unavailable."""
     if PasswordHasher is None:
-        raise RuntimeError("argon2-cffi is required for authentication. Install it with: pip install argon2-cffi")
+        raise RuntimeError(
+            "Authentication dependency missing: 'argon2-cffi' is required. "
+            "Install the project dependencies from requirements.txt or run 'pip install argon2-cffi'."
+        )
+
+
+def _password_hasher() -> PasswordHasher:
+    validate_runtime_dependencies()
     return PasswordHasher()
 
 

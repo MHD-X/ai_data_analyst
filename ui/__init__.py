@@ -81,13 +81,7 @@ def clear_dataframe() -> None:
 
 def reset_dataset_state() -> None:
     """Reset dataset-specific state when a new file is selected or removed."""
-    st.session_state["dataset_id"] = None
-    st.session_state["df"] = None
-    st.session_state["df_loaded"] = False
-    st.session_state["data_path"] = None
-    st.session_state["dataset_name"] = None
-    st.session_state["messages"] = []
-    st.session_state["last_operation_id"] = None
+    clear_dataframe()
 
 
 def get_dataframe() -> pd.DataFrame | None:
@@ -121,9 +115,22 @@ def ensure_session() -> int:
     return sid
 
 
-from ui.chat import render_chat  # noqa: E402
-from ui.dashboard import render_dashboard  # noqa: E402
-from ui.sidebar import render_sidebar  # noqa: E402
+def render_chat(*args: Any, **kwargs: Any) -> None:
+    from ui.chat import render_chat as _render_chat
+
+    return _render_chat(*args, **kwargs)
+
+
+def render_dashboard(*args: Any, **kwargs: Any) -> None:
+    from ui.dashboard import render_dashboard as _render_dashboard
+
+    return _render_dashboard(*args, **kwargs)
+
+
+def render_sidebar(*args: Any, **kwargs: Any) -> None:
+    from ui.sidebar import render_sidebar as _render_sidebar
+
+    return _render_sidebar(*args, **kwargs)
 
 
 __all__ = [

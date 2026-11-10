@@ -52,7 +52,7 @@ st.set_page_config(
     page_icon=str(_ICON_PATH),
     layout=CONFIG.ui.layout,
 )
-from core.auth import AuthStore, is_authenticated, require_role, session_logout
+from core.auth import AuthStore, is_authenticated, require_role, session_logout, validate_runtime_dependencies
 from ui import ensure_session, init_state
 from utils.i18n import SUPPORTED_LANGS, get_lang, normalize_language, t
 
@@ -160,6 +160,12 @@ def _logout_current_user() -> None:
 
 
 def main() -> None:
+    try:
+        validate_runtime_dependencies()
+    except RuntimeError as exc:
+        st.error(str(exc))
+        st.stop()
+
     init_state()
     raw_lang = st.session_state.get("language") or st.session_state.get("lang") or CONFIG.ui.default_language
     normalized = normalize_language(raw_lang)
