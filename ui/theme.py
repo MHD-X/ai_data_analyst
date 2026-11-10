@@ -36,19 +36,19 @@ def _opt(name: str, fallback: str) -> str:
 def _palette(mode: str) -> dict[str, str]:
     if mode == THEME_DARK:
         return {
-            "__BG__": "hsl(222 47% 7%)",
-            "__SURFACE__": "hsl(222 40% 11%)",
-            "__SIDEBAR__": "hsl(224 44% 9%)",
+            "__BG__": "hsl(220 27% 9%)",
+            "__SURFACE__": "hsl(222 25% 14%)",
+            "__SIDEBAR__": "hsl(224 24% 12%)",
             "__TEXT__": "hsl(210 40% 96%)",
-            "__MUTED__": "hsl(215 20% 70%)",
-            "__BORDER__": "hsl(217 33% 24%)",
-            "__SHADOW__": "hsl(222 60% 2% / 0.6)",
+            "__MUTED__": "hsl(214 18% 72%)",
+            "__BORDER__": "hsl(213 18% 26%)",
+            "__SHADOW__": "hsl(222 60% 2% / 0.58)",
             "__DARK_LOGO__": _DARK_LOGO_CSS,
         }
     return {
-        "__BG__": _opt("backgroundColor", "hsl(219 33% 98%)"),
+        "__BG__": _opt("backgroundColor", "hsl(215 33% 97%)"),
         "__SURFACE__": "hsl(0 0% 100%)",
-        "__SIDEBAR__": _opt("secondaryBackgroundColor", "hsl(220 30% 96%)"),
+        "__SIDEBAR__": _opt("secondaryBackgroundColor", "hsl(210 30% 97%)"),
         "__TEXT__": _opt("textColor", "hsl(215 39% 17%)"),
         "__MUTED__": "hsl(215 16% 42%)",
         "__BORDER__": "hsl(215 25% 86%)",
@@ -112,8 +112,23 @@ html, body {
 }
 
 .stApp h1, .stApp h2, .stApp h3, .stApp h4, .stApp h5, .stApp h6,
-.stApp p, .stApp li, .stApp label, .stApp [data-testid="stMarkdownContainer"] {
+.stApp p, .stApp li, .stApp label, .stApp [data-testid="stMarkdownContainer"],
+.stApp [data-testid="stVerticalBlock"],
+.stApp [data-testid="stSidebar"] * {
     color: var(--text-color);
+    text-align: __ALIGN__;
+}
+
+.stApp [data-testid="stSidebar"] {
+    direction: __DIRECTION__;
+    text-align: __ALIGN__;
+}
+
+.stApp [data-testid="stSidebar"] .stSelectbox,
+.stApp [data-testid="stSidebar"] .stTextInput,
+.stApp [data-testid="stSidebar"] .stFileUploader,
+.stApp [data-testid="stSidebar"] .stButton {
+    text-align: __ALIGN__;
 }
 
 .stApp h1, .stApp h2, .stApp h3 {
@@ -198,15 +213,17 @@ html, body {
 }
 
 [data-testid="stFileUploaderDropzone"] {
-    background: var(--surface-color);
-    border: 2px dashed color-mix(in srgb, var(--primary-color) 45%, var(--border-color));
+    background: color-mix(in srgb, var(--surface-color) 82%, transparent);
+    border: 2px dashed color-mix(in srgb, var(--primary-color) 52%, var(--border-color));
     border-radius: var(--radius-lg);
-    transition: border-color 160ms ease, background 160ms ease;
+    transition: border-color 160ms ease, background 160ms ease, transform 160ms ease;
+    min-height: 150px;
 }
 
 [data-testid="stFileUploaderDropzone"]:hover {
     border-color: var(--primary-color);
-    background: var(--hover-color);
+    background: color-mix(in srgb, var(--surface-color) 90%, var(--primary-color) 10%);
+    transform: translateY(-1px);
 }
 
 [data-testid="stFileUploaderDropzone"] button {
@@ -268,7 +285,7 @@ html, body {
 
 [data-testid="stChatMessage"] {
     background: transparent;
-    padding: 0.25rem 0;
+    padding: 0.35rem 0;
 }
 
 [data-testid="stChatMessage"] [data-testid="stChatMessageContent"] {
@@ -276,27 +293,46 @@ html, body {
     border: 1px solid var(--border-color);
     border-radius: 1.25rem;
     box-shadow: 0 6px 18px var(--shadow-color);
-    padding: 0.75rem 1rem;
+    padding: 0.9rem 1rem;
     color: var(--text-color);
 }
 
 [data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-user"]) [data-testid="stChatMessageContent"] {
     background: var(--primary-color);
     border-color: transparent;
-    box-shadow: 0 8px 20px color-mix(in srgb, var(--primary-color) 30%, transparent);
+    box-shadow: 0 10px 24px color-mix(in srgb, var(--primary-color) 28%, transparent);
 }
 
 [data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-user"]) [data-testid="stChatMessageContent"] * {
     color: var(--on-primary) !important;
 }
 
+[data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-assistant"]) [data-testid="stChatMessageContent"] {
+    background: var(--surface-color);
+    border: 1px solid var(--border-color);
+    box-shadow: 0 6px 18px var(--shadow-color);
+}
+
 [data-testid="stSidebar"] {
     background: var(--sidebar-color);
     border-inline-end: 1px solid var(--border-color);
+    padding-inline: 0.75rem;
 }
 
 [data-testid="stSidebarUserContent"] {
-    padding: 1.25rem 1rem 2rem;
+    padding: 1.25rem 0.75rem 2rem;
+}
+
+[data-testid="stSidebar"] h1,
+[data-testid="stSidebar"] h2,
+[data-testid="stSidebar"] h3,
+[data-testid="stSidebar"] p,
+[data-testid="stSidebar"] label,
+[data-testid="stSidebar"] div,
+[data-testid="stSidebar"] span,
+[data-testid="stSidebar"] button {
+    text-align: __ALIGN__ !important;
+    direction: __DIRECTION__ !important;
 }
 
 [data-testid="stHeader"] {
@@ -415,6 +451,21 @@ pre, code, [data-testid="stCode"],
 .js-plotly-plot {
     direction: ltr !important;
     text-align: left !important;
+}
+
+[data-testid="stChatInput"] {
+    text-align: __ALIGN__ !important;
+    direction: __DIRECTION__ !important;
+}
+
+[data-testid="stChatInput"] textarea {
+    text-align: __ALIGN__ !important;
+    direction: __DIRECTION__ !important;
+}
+
+.stApp [data-testid="stSidebar"] [data-testid="stFileUploaderDropzone"] {
+    direction: __DIRECTION__ !important;
+    text-align: __ALIGN__ !important;
 }
 
 @media (prefers-reduced-motion: reduce) {

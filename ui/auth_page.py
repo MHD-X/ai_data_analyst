@@ -294,44 +294,44 @@ def render_auth_page() -> None:
 
         if mode == "login":
             st.markdown('<div class="auth-badge">Between Data</div>', unsafe_allow_html=True)
-            st.markdown('<div class="auth-title">Welcome back</div>', unsafe_allow_html=True)
-            st.markdown('<div class="auth-subtitle">Need an account?</div>', unsafe_allow_html=True)
-            if st.button("Create one", key="switch_to_register", use_container_width=False):
+            st.markdown(f'<div class="auth-title">{t("auth.welcome_back")}</div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="auth-subtitle">{t("auth.need_account")}</div>', unsafe_allow_html=True)
+            if st.button(t("auth.create_one"), key="switch_to_register", use_container_width=False):
                 st.session_state["auth_mode"] = "register"
                 st.rerun()
             _render_login_form()
             st.markdown('<div class="auth-secondary-row">', unsafe_allow_html=True)
-            if st.button("Verify email", key="switch_to_verify", use_container_width=True):
+            if st.button(t("auth.verify_email_short"), key="switch_to_verify", use_container_width=True):
                 st.session_state["auth_mode"] = "verify"
                 st.rerun()
-            if st.button("Reset password", key="switch_to_reset", use_container_width=True):
+            if st.button(t("auth.reset_link"), key="switch_to_reset", use_container_width=True):
                 st.session_state["auth_mode"] = "reset"
                 st.rerun()
             st.markdown('</div>', unsafe_allow_html=True)
 
         elif mode == "verify":
             st.markdown('<div class="auth-badge">Security</div>', unsafe_allow_html=True)
-            st.markdown('<div class="auth-title">Verify your email</div>', unsafe_allow_html=True)
-            st.markdown('<div class="auth-subtitle">Back to login?</div>', unsafe_allow_html=True)
-            if st.button("Log in", key="switch_to_login_from_verify", use_container_width=False):
+            st.markdown(f'<div class="auth-title">{t("auth.verify_email")}</div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="auth-subtitle">{t("auth.back_to_login")}</div>', unsafe_allow_html=True)
+            if st.button(t("auth.log_in"), key="switch_to_login_from_verify", use_container_width=False):
                 st.session_state["auth_mode"] = "login"
                 st.rerun()
             _render_verify_form()
 
         elif mode == "reset":
             st.markdown('<div class="auth-badge">Recovery</div>', unsafe_allow_html=True)
-            st.markdown('<div class="auth-title">Reset password</div>', unsafe_allow_html=True)
-            st.markdown('<div class="auth-subtitle">Remember it?</div>', unsafe_allow_html=True)
-            if st.button("Log in", key="switch_to_login_from_reset", use_container_width=False):
+            st.markdown(f'<div class="auth-title">{t("auth.reset_password_title")}</div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="auth-subtitle">{t("auth.remember_it")}</div>', unsafe_allow_html=True)
+            if st.button(t("auth.log_in"), key="switch_to_login_from_reset", use_container_width=False):
                 st.session_state["auth_mode"] = "login"
                 st.rerun()
             _render_forgot_form()
 
         else:
             st.markdown('<div class="auth-badge">Between Data</div>', unsafe_allow_html=True)
-            st.markdown('<div class="auth-title">Create an account</div>', unsafe_allow_html=True)
-            st.markdown('<div class="auth-subtitle">Already have an account?</div>', unsafe_allow_html=True)
-            if st.button("Log in", key="switch_to_login", use_container_width=False):
+            st.markdown(f'<div class="auth-title">{t("auth.create_account")}</div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="auth-subtitle">{t("auth.already_account")}</div>', unsafe_allow_html=True)
+            if st.button(t("auth.log_in"), key="switch_to_login", use_container_width=False):
                 st.session_state["auth_mode"] = "login"
                 st.rerun()
             _render_register_form()
