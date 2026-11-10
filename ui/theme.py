@@ -20,43 +20,81 @@ _UPLOAD_ICON_SVG = (
 def build_theme_css(lang: str | None = None, mode: str = THEME_LIGHT) -> str:
     """Return a minimal, safe stylesheet that respects RTL/LTR without overriding Streamlit's layout."""
     direction = "rtl" if is_rtl(lang) else "ltr"
+    panel_bg = "black" if mode == THEME_DARK else "white"
+    page_bg = "black" if mode == THEME_DARK else "white"
+    text_color = "white" if mode == THEME_DARK else "black"
+    muted_color = "lightgray" if mode == THEME_DARK else "gray"
+    button_bg = "black" if mode == THEME_DARK else "blue"
+    border_color = "lightgray" if mode == THEME_DARK else "silver"
     return f"""
     <style>
     /* Between Data theme */
-    .stApp {{ direction: {direction}; }}
+    .stApp {{
+        direction: {direction};
+        background: {page_bg};
+        color: {text_color};
+    }}
     .stApp [data-testid="stMain"] {{
         padding-top: 0.5rem;
         padding-bottom: 1rem;
     }}
+    .stApp [data-testid="stSidebar"] {{
+        background: {panel_bg};
+        color: {text_color};
+        direction: {direction};
+    }}
+    .stApp .stMarkdown, .stApp .stForm, .stApp .stDataFrameContainer, .stApp .stTextInput, .stApp .stSelectbox, .stApp .stFileUploader {{
+        direction: {direction};
+        text-align: start;
+    }}
     .stButton > button {{
-        background: var(--primary-color, blue);
-        border: 1px solid var(--primary-color, blue);
+        background: {button_bg};
+        border: 1px solid {border_color};
         border-radius: 10px;
         color: white;
         font-weight: 600;
     }}
     .stFileUploader {{
         border-radius: 12px;
-        background: var(--secondary-background-color, lightgray);
+        background: {panel_bg};
+        border: 1px solid {border_color};
     }}
     .stSidebar {{
-        background: var(--secondary-background-color, lightgray);
+        background: {panel_bg};
+    }}
+    .stTabs [role="tablist"], .stSidebar .stSelectbox, .stSidebar .stButton {{
+        direction: {direction};
+    }}
+    .auth-card, .auth-shell {{
+        direction: {direction};
+    }}
+    .auth-title {{
+        color: {text_color};
+    }}
+    .auth-subtitle {{
+        color: {muted_color};
+    }}
+    .stAlert, .stSuccess, .stWarning, .stInfo {{
+        border-radius: 10px;
     }}
     </style>
     """
 
 
 def _resolve_theme_mode() -> str:
-    mode = st.session_state.get("theme_mode")
-    if mode is None:
-        mode = THEME_DARK if st.session_state.get("theme_dark_toggle") else THEME_LIGHT
-    mode = str(mode).lower()
-    return THEME_DARK if mode == THEME_DARK else THEME_LIGHT
+    value = st.session_state.get("theme_mode")
+    if value is None:
+        value = st.session_state.get("theme_dark_toggle")
+    if value is None:
+        return THEME_LIGHT
+    return THEME_DARK if bool(value) else THEME_LIGHT
 
 
-def apply_theme(lang: str | None = None) -> None:
+def apply_theme(lang: str | None = None, mode: str | None = None) -> None:
     """Apply the current theme mode to the active Streamlit session and keep state consistent."""
-    resolved_mode = _resolve_theme_mode()
+    resolved_mode = (mode or _resolve_theme_mode()).lower()
+    if resolved_mode not in {THEME_LIGHT, THEME_DARK}:
+        resolved_mode = THEME_LIGHT
     st.session_state["theme_mode"] = resolved_mode
     st.session_state["theme_dark_toggle"] = resolved_mode == THEME_DARK
     try:
@@ -76,8 +114,9 @@ def _on_theme_toggle() -> None:
 
 
 def render_theme_toggle() -> None:
-    st.session_state.setdefault("theme_mode", THEME_LIGHT)
-    st.session_state.setdefault("theme_dark_toggle", st.session_state["theme_mode"] == THEME_DARK)
+    theme_mode = st.session_state.get("theme_mode", THEME_LIGHT)
+    st.session_state.setdefault("theme_mode", theme_mode)
+    st.session_state.setdefault("theme_dark_toggle", theme_mode == THEME_DARK)
     st.toggle(
         t("theme_dark_mode"),
         value=st.session_state["theme_mode"] == THEME_DARK,

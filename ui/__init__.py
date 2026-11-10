@@ -19,6 +19,9 @@ from utils.helpers import now_iso
 
 STATE_DEFAULTS: dict[str, Any] = {
     "lang": CONFIG.ui.default_language,
+    "language": CONFIG.ui.default_language,
+    "theme_mode": "light",
+    "theme_dark_toggle": False,
     "df": None,
     "df_loaded": False,
     "data_path": None,
@@ -38,10 +41,15 @@ def init_state() -> None:
         st.session_state["lang"] = CONFIG.ui.default_language
     if st.session_state.get("language") is None:
         st.session_state["language"] = st.session_state["lang"]
+    if st.session_state.get("theme_mode") is None:
+        st.session_state["theme_mode"] = "light"
+    if st.session_state.get("theme_dark_toggle") is None:
+        st.session_state["theme_dark_toggle"] = False
     from utils.i18n import normalize_language
 
     st.session_state["lang"] = normalize_language(st.session_state.get("lang"))
     st.session_state["language"] = normalize_language(st.session_state.get("language"))
+    st.session_state["theme_mode"] = "dark" if st.session_state.get("theme_dark_toggle") else "light"
 
 
 def set_dataframe(
