@@ -276,7 +276,7 @@ def render_auth_page() -> None:
     if mode not in {"login", "register", "verify", "reset"}:
         mode = "register"
 
-    left_col, right_col = st.columns([1, 1], gap="none")
+    left_col, right_col = st.columns([1, 1], gap="small")
 
     with left_col:
         left_col.markdown('<div class="auth-image-box">', unsafe_allow_html=True)
