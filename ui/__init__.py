@@ -1,4 +1,4 @@
-﻿"""Canonical UI state and shared session helpers for the app."""
+"""Canonical UI state and shared session helpers for the app."""
 from __future__ import annotations
 
 import sys
