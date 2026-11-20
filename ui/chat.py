@@ -42,7 +42,7 @@ from core.prompts import (
     validate_generated_code,
 )
 from core.security import temp_csv_for_sandbox
-from ui.theme import render_welcome_card
+from ui.theme import render_empty_state, render_welcome_card
 from utils.helpers import humanize_duration, truncate_text
 from utils.i18n import t
 
@@ -422,32 +422,32 @@ def _handle_prompt(prompt: str) -> None:
 # نقطة الدخول
 # ============================================================
 def render_chat() -> None:
-    """
-    يرسم واجهة المحادثة.
-    - لو لا يوجد df → رسالة توضيحية.
-    - لو يوجد df → عرض الرسائل + صندوق الإدخال.
-    """
-    # فحص وجود DataFrame (باستخدام المفتاح السريع df_loaded)
     df_loaded = st.session_state.get("df_loaded", False)
     df = st.session_state.get("df")
 
     if not df_loaded or df is None:
-        render_welcome_card(t("no_file"))
+        render_empty_state(t("no_file"))
         return
 
-    # عرض ملخص الملف
     name = st.session_state.get("dataset_name") or "?"
     try:
         rows, cols = df.shape
-        st.caption(f"📊 `{name}` — {rows} × {cols}")
+        st.caption(f"{name} — {rows} × {cols}")
     except Exception:
         pass
 
-    # عرض الرسائل السابقة
+    pending = st.session_state.pop("_pending_prompt", None)
+
     for idx, msg in enumerate(st.session_state["messages"]):
         _render_message(msg, idx)
 
-    # صندوق الإدخال
-    prompt = st.chat_input(t("ask_placeholder"), key="chat_input_main")
+    if not st.session_state["messages"]:
+        st.markdown(f"**{t('chat.examples_title')}**")
+        c1, c2, c3 = st.columns(3)
+        c1.button(t("chat.ex1"), key="chat_example_1", on_click=lambda: st.session_state.__setitem__("_pending_prompt", t("chat.ex1")), use_container_width=True)
+        c2.button(t("chat.ex2"), key="chat_example_2", on_click=lambda: st.session_state.__setitem__("_pending_prompt", t("chat.ex2")), use_container_width=True)
+        c3.button(t("chat.ex3"), key="chat_example_3", on_click=lambda: st.session_state.__setitem__("_pending_prompt", t("chat.ex3")), use_container_width=True)
+
+    prompt = st.chat_input(t("ask_placeholder"), key="chat_input_main") or pending
     if prompt:
         _handle_prompt(prompt)

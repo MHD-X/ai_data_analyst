@@ -13,10 +13,6 @@ ROOT = Path(__file__).resolve().parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-_LOGO_PATH = ROOT / "assets" / "logo.png"
-_ICON_PATH = ROOT / "assets" / "icon.png"
-
-
 def _force_utf8_std_streams() -> None:
     for name in ("stdout", "stderr"):
         stream = getattr(sys, name, None)
@@ -49,7 +45,7 @@ from config import CONFIG, validate_config
 
 st.set_page_config(
     page_title=CONFIG.ui.page_title,
-    page_icon=str(_ICON_PATH),
+    page_icon=None,
     layout=CONFIG.ui.layout,
 )
 from core.auth import AuthStore, is_authenticated, require_role, session_logout, validate_runtime_dependencies
@@ -59,57 +55,17 @@ from utils.i18n import SUPPORTED_LANGS, get_lang, normalize_language, t
 
 logger = logging.getLogger(__name__)
 
-_FORECAST_TAB_LABELS = {"ar": "🔮 التنبؤات", "en": "🔮 Forecast"}
-
-
-def _streamlit_supports_logo() -> bool:
-    try:
-        version = getattr(st, "__version__", "0") or "0"
-        numeric = [int(part) for part in re.findall(r"\d+", version)[:3]]
-        if len(numeric) >= 2:
-            return tuple(numeric[:2]) >= (1, 35)
-    except Exception:
-        pass
-    return hasattr(st, "logo")
-
-
-def _render_logo_images() -> bool:
-    if not _LOGO_PATH.exists() or not _ICON_PATH.exists():
-        logger.warning("Logo image not found. Please add assets/logo.png and assets/icon.png")
-        return False
-
-    if _streamlit_supports_logo():
-        try:
-            st.logo(str(_LOGO_PATH), icon_image=str(_ICON_PATH))
-            return True
-        except TypeError:
-            try:
-                st.logo(image=str(_LOGO_PATH), icon_image=str(_ICON_PATH))
-                return True
-            except Exception:
-                pass
-        except Exception:
-            pass
-
-    st.image(str(_LOGO_PATH), width=220)
-    return True
-
-
-def _render_main_page_logo() -> None:
-    if not _LOGO_PATH.exists():
-        logger.warning("Logo image not found. Please add assets/logo.png and assets/icon.png")
-        return
-    st.image(str(_LOGO_PATH), width=220)
+_FORECAST_TAB_LABELS = {"ar": "التنبؤات", "en": "Forecast"}
 
 
 @st.cache_resource(show_spinner=False)
 def _bootstrap_once() -> str | None:
     try:
         result = AuthStore().bootstrap_admin()
+        return result if isinstance(result, str) else None
     except Exception:
         logger.warning("Admin bootstrap failed", exc_info=True)
         return "db_error"
-    return result if isinstance(result, str) else None
 
 
 def _render(module_name: str, func_name: str, fallback: Callable[[], None] | None = None) -> None:
@@ -180,8 +136,6 @@ def main() -> None:
     else:
         st.session_state.pop("admin_bootstrap_error", None)
 
-    _render_logo_images()
-
     user = st.session_state.get("user")
     if not is_authenticated(st.session_state, user):
         _admin_bootstrap_notice()
@@ -220,15 +174,17 @@ def main() -> None:
         st.stop()
 
     with st.sidebar:
+        from ui.theme import render_brand
+        render_brand(large=False, center=False)
+        st.divider()
         st.header(t("sidebar_title"))
         _render("ui.sidebar", "render_sidebar", fallback=_fallback_sidebar)
 
-    _render_main_page_logo()
     st.title(t("app_title"))
     st.caption(t("app_subtitle"))
 
     ok, errors = validate_config()
-    if not ok:
+    if not ok and str((user or {}).get("role") or "").lower() == "admin":
         for err in errors:
             st.warning(err)
 

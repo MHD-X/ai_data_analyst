@@ -21,12 +21,5 @@ def test_no_forbidden_color_literals_in_theme_css() -> None:
 def test_streamlit_config_has_expected_theme_values() -> None:
     config = tomllib.loads(CONFIG_FILE.read_text(encoding="utf-8"))
     theme = config["theme"]
-    expected = {
-        "base": "light",
-        "primaryColor": "#2563EB",
-        "backgroundColor": "#F6F8FB",
-        "secondaryBackgroundColor": "#EEF2F7",
-        "textColor": "#1E293B",
-        "font": "sans serif",
-    }
-    assert theme == expected
+    assert theme == {"primaryColor": "#2563EB", "font": "sans serif"}
+    assert "base" not in theme
