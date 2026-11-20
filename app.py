@@ -41,13 +41,14 @@ _force_utf8_std_streams()
 
 import streamlit as st
 
+st.set_page_config(
+    page_title="Between Data",
+    page_icon=None,
+    layout="wide",
+)
+
 from config import CONFIG, validate_config
 
-st.set_page_config(
-    page_title=CONFIG.ui.page_title,
-    page_icon=None,
-    layout=CONFIG.ui.layout,
-)
 from core.auth import AuthStore, is_authenticated, require_role, session_logout, validate_runtime_dependencies
 from ui import ensure_session, init_state
 from ui.theme import apply_theme
