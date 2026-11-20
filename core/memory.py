@@ -465,13 +465,15 @@ class MemoryStore:
         logger.info("%s عملية #%d: %s (user=%s)", status, op_id, truncate_text(user_request, 60), user_id)
         return op_id
 
-    def get_operation(self, operation_id: int) -> Operation | None:
+    def get_operation(self, operation_id: int, user_id: int | None = None) -> Operation | None:
         """يعيد عملية بالمعرّف."""
+        query = "SELECT * FROM operations WHERE id = ?"
+        params: list[Any] = [operation_id]
+        if user_id is not None:
+            query += " AND user_id = ?"
+            params.append(int(user_id))
         with self._connect() as conn:
-            row = conn.execute(
-                "SELECT * FROM operations WHERE id = ?",
-                (operation_id,),
-            ).fetchone()
+            row = conn.execute(query, tuple(params)).fetchone()
 
         if row is None:
             return None
@@ -560,10 +562,15 @@ class MemoryStore:
         operation_id: int,
         rating: int,
         comment: str = "",
+        user_id: int | None = None,
     ) -> int:
         """يضيف تقييماً لعملية (1 إلى 5) ويعيد feedback_id."""
         if not (1 <= rating <= 5):
             raise ValueError("⚠️ التقييم يجب أن يكون بين 1 و 5")
+        if user_id is not None:
+            owned = self.get_operation(operation_id, user_id=user_id)
+            if owned is None:
+                raise PermissionError("هذه العملية ليست مملوكة للمستخدم")
 
         now = now_iso()
         with self._connect() as conn:
@@ -618,13 +625,15 @@ class MemoryStore:
             return None
         return float(row["avg_rating"])
 
-    def delete_feedback(self, feedback_id: int) -> bool:
+    def delete_feedback(self, feedback_id: int, user_id: int | None = None) -> bool:
         """يحذف تقييماً."""
+        query = "DELETE FROM feedback WHERE id = ?"
+        params: list[Any] = [feedback_id]
+        if user_id is not None:
+            query = "DELETE FROM feedback WHERE id = ? AND operation_id IN (SELECT id FROM operations WHERE user_id = ?)"
+            params.append(int(user_id))
         with self._connect() as conn:
-            cur = conn.execute(
-                "DELETE FROM feedback WHERE id = ?",
-                (feedback_id,),
-            )
+            cur = conn.execute(query, tuple(params))
             conn.commit()
             return cur.rowcount > 0
 

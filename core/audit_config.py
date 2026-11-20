@@ -7,7 +7,7 @@ import pandas as pd
 from core.data_audit import AuditConfig
 from core.forecasting import detect_date_columns
 
-_ID_RE = re.compile(r"(^|[^a-z])id($|[^a-z])|معرف|رقم", re.IGNORECASE)
+_ID_RE = re.compile(r"(?<![A-Za-z])(?:id|معرف|رقم)(?![A-Za-z])", re.UNICODE | re.IGNORECASE)
 
 
 def _id_column_candidates(df: pd.DataFrame) -> list[str]:

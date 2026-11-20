@@ -73,6 +73,7 @@ def _sync_language_state() -> None:
     if value not in SUPPORTED_LANGS:
         return
     st.session_state["lang"] = value
+    st.session_state["language"] = value
 
 
 def _render_language() -> None:
