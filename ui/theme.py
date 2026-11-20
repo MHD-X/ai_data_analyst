@@ -6,130 +6,81 @@ import streamlit as st
 
 from utils.i18n import is_rtl, t
 
-THEME_LIGHT = "light"
-THEME_DARK = "dark"
 
-_UPLOAD_ICON_SVG = (
-    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" '
-    'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
-    '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>'
-    '<polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>'
-)
-
-
-def build_theme_css(lang: str | None = None, mode: str = THEME_LIGHT) -> str:
-    """Return a minimal, safe stylesheet that respects RTL/LTR without overriding Streamlit's layout."""
+def build_theme_css(lang: str | None = None, mode: str | None = None) -> str:
     direction = "rtl" if is_rtl(lang) else "ltr"
-    panel_bg = "black" if mode == THEME_DARK else "white"
-    page_bg = "black" if mode == THEME_DARK else "white"
-    text_color = "white" if mode == THEME_DARK else "black"
-    muted_color = "lightgray" if mode == THEME_DARK else "gray"
-    button_bg = "black" if mode == THEME_DARK else "blue"
-    border_color = "lightgray" if mode == THEME_DARK else "silver"
+    code_direction = "ltr"
     return f"""
-    <style>
-    /* Between Data theme */
-    .stApp {{
-        direction: {direction};
-        background: {page_bg};
-        color: {text_color};
-    }}
-    .stApp [data-testid="stMain"] {{
-        padding-top: 0.5rem;
-        padding-bottom: 1rem;
-    }}
-    .stApp [data-testid="stSidebar"] {{
-        background: {panel_bg};
-        color: {text_color};
-        direction: {direction};
-    }}
-    .stApp .stMarkdown, .stApp .stForm, .stApp .stDataFrameContainer, .stApp .stTextInput, .stApp .stSelectbox, .stApp .stFileUploader {{
-        direction: {direction};
-        text-align: start;
-    }}
-    .stButton > button {{
-        background: {button_bg};
-        border: 1px solid {border_color};
-        border-radius: 10px;
-        color: white;
-        font-weight: 600;
-    }}
-    .stFileUploader {{
-        border-radius: 12px;
-        background: {panel_bg};
-        border: 1px solid {border_color};
-    }}
-    .stSidebar {{
-        background: {panel_bg};
-    }}
-    .stTabs [role="tablist"], .stSidebar .stSelectbox, .stSidebar .stButton {{
-        direction: {direction};
-    }}
-    .auth-card, .auth-shell {{
-        direction: {direction};
-    }}
-    .auth-title {{
-        color: {text_color};
-    }}
-    .auth-subtitle {{
-        color: {muted_color};
-    }}
-    .stAlert, .stSuccess, .stWarning, .stInfo {{
-        border-radius: 10px;
-    }}
-    </style>
-    """
-
-
-def _resolve_theme_mode() -> str:
-    value = st.session_state.get("theme_mode")
-    if value is None:
-        value = st.session_state.get("theme_dark_toggle")
-    if value is None:
-        return THEME_LIGHT
-    return THEME_DARK if bool(value) else THEME_LIGHT
+<style>
+/* Between Data */
+:root {{ --bd-radius: 12px; }}
+[data-testid="stAppViewContainer"], [data-testid="stMain"] {{ direction: {direction}; }}
+[data-testid="stSidebar"] {{ direction: {direction}; }}
+[data-testid="stMain"], [data-testid="stSidebar"] {{
+  --bd-border: color-mix(in srgb, currentColor 18%, transparent);
+  --bd-muted: color-mix(in srgb, currentColor 68%, transparent);
+  --bd-surface: color-mix(in srgb, currentColor 5%, transparent);
+}}
+[data-testid="stMain"] .stMarkdown, [data-testid="stMain"] .stForm,
+[data-testid="stMain"] .stDataFrameContainer, [data-testid="stMain"] .stTextInput,
+[data-testid="stMain"] .stSelectbox, [data-testid="stMain"] .stFileUploader {{ text-align: start; }}
+[data-testid="stSidebar"] .stMarkdown, [data-testid="stSidebar"] .stForm,
+[data-testid="stSidebar"] .stTextInput, [data-testid="stSidebar"] .stSelectbox {{ text-align: start; }}
+.bd-brand {{ display: inline-flex; align-items: baseline; gap: 0.28em; font-weight: 800; direction: ltr; }}
+.bd-brand-mark {{ width: 1.55em; height: 1.55em; display: inline-grid; place-items: center; border-radius: 0.35em; background: hsl(221 83% 53%); color: hsl(0 0% 100%); font-size: 0.72em; }}
+.bd-brand-accent {{ color: hsl(221 83% 53%); }}
+.bd-brand-large {{ font-size: clamp(1.8rem, 5vw, 3rem); }}
+.bd-brand-center {{ justify-content: center; width: 100%; }}
+.auth-card, .bd-card, [data-testid="stExpander"] {{ border: 1px solid var(--bd-border); border-radius: var(--bd-radius); }}
+.auth-card, .bd-card {{ padding: 1.25rem; background: var(--bd-surface); }}
+.bd-metric-card {{ border: 1px solid var(--bd-border); border-radius: var(--bd-radius); padding: 0.9rem; }}
+[data-testid="stChatMessage"] {{ border: 1px solid var(--bd-border); border-radius: var(--bd-radius); }}
+.stButton > button {{ border-radius: var(--bd-radius); font-weight: 650; transition: filter 160ms ease, transform 160ms ease; }}
+.stButton > button:hover {{ filter: brightness(1.05); }}
+.stButton > button:active {{ transform: translateY(1px); }}
+.stTabs [role="tab"] {{ border-bottom: 2px solid transparent; }}
+.stTabs [role="tab"][aria-selected="true"] {{ border-bottom-color: hsl(221 83% 53%); }}
+.stFileUploader {{ border: 1.5px dashed var(--bd-border); border-radius: var(--bd-radius); }}
+.stFileUploader [data-testid="stFileUploaderDropzone"] {{ border: 1.5px dashed var(--bd-border); }}
+.stFileUploader [data-testid="stFileUploaderDropzone"] svg {{ width: 1.6rem; height: 1.6rem; }}
+.stDataFrame, [data-testid="stTable"] {{ direction: {code_direction}; }}
+[data-testid="stPlotlyChart"] {{ direction: ltr; }}
+pre, code {{ direction: ltr; text-align: left; }}
+button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible,
+[data-baseweb="select"]:focus-visible {{ outline: 2px solid hsl(221 83% 53%); outline-offset: 2px; }}
+.bd-empty {{ max-width: 38rem; margin: 1.5rem auto; text-align: center; color: var(--bd-muted); }}
+.bd-empty-icon {{ font-size: 1.6rem; line-height: 1; opacity: 0.75; }}
+@media (max-width: 760px) {{
+  [data-testid="stHorizontalBlock"] {{ flex-wrap: wrap; }}
+  [data-testid="stHorizontalBlock"] > div {{ width: 100% !important; flex: 1 1 100% !important; }}
+}}
+@media (prefers-reduced-motion: reduce) {{
+  .stButton > button {{ transition: none; }}
+}}
+</style>
+"""
 
 
 def apply_theme(lang: str | None = None, mode: str | None = None) -> None:
-    """Apply the current theme mode to the active Streamlit session and keep state consistent."""
-    resolved_mode = (mode or _resolve_theme_mode()).lower()
-    if resolved_mode not in {THEME_LIGHT, THEME_DARK}:
-        resolved_mode = THEME_LIGHT
-    st.session_state["theme_mode"] = resolved_mode
-    st.session_state["theme_dark_toggle"] = resolved_mode == THEME_DARK
-    try:
-        st.set_option("theme.base", resolved_mode)
-    except Exception:
-        pass
-    st.markdown(build_theme_css(lang=lang or st.session_state.get("lang"), mode=resolved_mode), unsafe_allow_html=True)
+    st.markdown(build_theme_css(lang=lang or st.session_state.get("lang") or "ar"), unsafe_allow_html=True)
 
 
-def _on_theme_toggle() -> None:
-    mode = THEME_DARK if st.session_state.get("theme_dark_toggle") else THEME_LIGHT
-    st.session_state["theme_mode"] = mode
-    try:
-        st.set_option("theme.base", mode)
-    except Exception:
-        pass
+def brand_html(large: bool = False) -> str:
+    size_class = " bd-brand-large" if large else ""
+    return (f'<span class="bd-brand{size_class}" aria-label="Between Data">'
+            '<span class="bd-brand-mark">B</span><span>Between</span>'
+            '<span class="bd-brand-accent">Data</span></span>')
 
 
-def render_theme_toggle() -> None:
-    theme_mode = st.session_state.get("theme_mode", THEME_LIGHT)
-    st.session_state.setdefault("theme_mode", theme_mode)
-    st.session_state.setdefault("theme_dark_toggle", theme_mode == THEME_DARK)
-    st.toggle(
-        t("theme_dark_mode"),
-        value=st.session_state["theme_mode"] == THEME_DARK,
-        key="theme_dark_toggle",
-        on_change=_on_theme_toggle,
-    )
+def render_brand(large: bool = True, center: bool = True) -> None:
+    center_class = " bd-brand-center" if center else ""
+    st.markdown(f'<div class="bd-brand{center_class}">{brand_html(large).replace("bd-brand-large", "")}</div>', unsafe_allow_html=True)
+
+
+def render_empty_state(message: str | None = None) -> None:
+    text = html.escape(message or t("no_file"))
+    st.markdown(f'<div class="bd-empty"><div class="bd-empty-icon">+</div><p>{text}</p></div>', unsafe_allow_html=True)
 
 
 def render_welcome_card(message: str) -> None:
-    st.markdown(
-        '<div class="bd-welcome">'
-        f'<div class="bd-welcome-icon">{_UPLOAD_ICON_SVG}</div>'
-        f'<div><h3>{html.escape(t("welcome.title"))}</h3><p>{html.escape(message)}</p></div>'
-        "</div>",
-        unsafe_allow_html=True,
-    )
+    render_empty_state(message)

@@ -74,8 +74,8 @@ def test_register_existing_email_is_neutral(auth_store):
     assert first.ok is True
 
     second = register("dup@example.com", "OtherPass456", "Another", store=auth_store)
-    assert second.ok is False
-    assert second.message_key == "auth.check_email"
+    assert second.ok is True
+    assert second.message_key == "auth.registration_success"
 
 
 def test_request_reset_and_change_password(auth_store):

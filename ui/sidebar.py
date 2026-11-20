@@ -28,7 +28,6 @@ from utils.helpers import (
     hash_file,
     read_data_file,
 )
-from ui.theme import render_theme_toggle
 from utils.i18n import SUPPORTED_LANGS, get_lang, t
 
 MAX_UPLOAD_MB = 25
@@ -71,9 +70,10 @@ def _clear_dataframe_from_state() -> None:
 # ============================================================
 def _sync_language_state() -> None:
     value = st.session_state.get("language") or st.session_state.get("lang")
-    if value in SUPPORTED_LANGS:
-        st.session_state["lang"] = value
-        st.session_state["language"] = value
+    if value not in SUPPORTED_LANGS:
+        return
+    st.session_state["lang"] = value
+    st.session_state["language"] = value
 
 
 def _render_language() -> None:
@@ -317,7 +317,6 @@ def _render_tools() -> None:
 # ============================================================
 def render_sidebar() -> None:
     """يرسم الشريط الجانبي كاملاً. يُستدعى من app.py داخل `with st.sidebar:`."""
-    render_theme_toggle()
     _render_language()
     st.divider()
 

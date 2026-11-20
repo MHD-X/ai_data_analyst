@@ -11,18 +11,16 @@ xlsxwriter>=3.2.0
 
 # Visualization
 plotly>=5.24.1
-kaleido>=0.2.1
+matplotlib>=3.9.0
 
 # Forecasting and ML
 scikit-learn>=1.5.2
 statsmodels>=0.14.4
-prophet>=1.1.6
+scipy>=1.14.0
 
 # Database and security
 psycopg2-binary>=2.9.9
 cryptography>=42.0.0
-pydantic>=2.9.2
-tabulate>=0.9.0
 argon2-cffi>=23.1.0
 
 # Reporting and text support

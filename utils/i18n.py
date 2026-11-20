@@ -153,7 +153,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "forecast.no_anomalies": "لم تُرصد قيم شاذة في السلسلة التاريخية.",
         "stats_load_error": "⚠️ تعذّر تحميل الإحصائيات: {error}",
         "ops_load_error": "⚠️ تعذّر تحميل العمليات: {error}",
-        "forecast.summary_panel": "🔮 التنبؤ والملخص التنفيذي",
+        "forecast.summary_panel": "التنبؤ والملخص التنفيذي",
         "forecast.model_label": "النموذج",
         "forecast.average_prediction": "متوسط التنبؤ",
         "forecast.last_value": "آخر قيمة",
@@ -347,7 +347,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "forecast.no_anomalies": "No anomalies were detected in the time series.",
         "stats_load_error": "⚠️ Failed to load statistics: {error}",
         "ops_load_error": "⚠️ Failed to load operations: {error}",
-        "forecast.summary_panel": "🔮 Forecast and executive summary",
+        "forecast.summary_panel": "Forecast and executive summary",
         "forecast.model_label": "Model",
         "forecast.average_prediction": "Average forecast",
         "forecast.last_value": "Last value",
@@ -413,6 +413,35 @@ TRANSLATIONS["ar"].update({
     "dash.tab_analysis": "🔮 التحليل",
     "dash.tab_quality": "🛡️ جودة البيانات",
     "dash.tab_activity": "🕘 النشاط",
+})
+
+TRANSLATIONS["ar"].update({
+    "hero.title": "حوّل بياناتك إلى إجابات",
+    "hero.subtitle": "تحليل آمن ودقيق، مدعوم بحسابات برمجية محددة",
+    "hero.step1": "ارفع",
+    "hero.step1_desc": "CSV أو Excel",
+    "hero.step2": "اسأل",
+    "hero.step2_desc": "اكتب سؤالك بالعربية أو الإنجليزية",
+    "hero.step3": "افهم",
+    "hero.step3_desc": "نتائج وتنبؤات قابلة للتفسير",
+    "chat.examples_title": "جرب أحد هذه الأمثلة",
+    "chat.ex1": "لخّص أكبر القيم",
+    "chat.ex2": "اعرض اتجاهات الشهر",
+    "chat.ex3": "اكتشف القيم الشاذة",
+})
+TRANSLATIONS["en"].update({
+    "hero.title": "Turn your data into answers",
+    "hero.subtitle": "Secure, accurate analysis powered by deterministic calculations",
+    "hero.step1": "Upload",
+    "hero.step1_desc": "CSV or Excel",
+    "hero.step2": "Ask",
+    "hero.step2_desc": "Write your question in Arabic or English",
+    "hero.step3": "Understand",
+    "hero.step3_desc": "Clear forecasts and explanations",
+    "chat.examples_title": "Try one of these examples",
+    "chat.ex1": "Summarize the largest values",
+    "chat.ex2": "Show monthly trends",
+    "chat.ex3": "Detect anomalies",
 })
 
 

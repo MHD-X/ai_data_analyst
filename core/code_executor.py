@@ -224,7 +224,7 @@ class CodeExecutor:
                 if node.module:
                     self._check_module(node.module)
             elif isinstance(node, ast.Attribute):
-                if node.attr.startswith("__") or node.attr in self.BLOCKED_ATTRS:
+                if node.attr.startswith("__") or node.attr.startswith("_") or node.attr in self.BLOCKED_ATTRS:
                     raise UnsafeCodeError(f"🚫 كود غير آمن: attribute '{node.attr}'")
             elif isinstance(node, ast.Name):
                 if node.id in self.BLOCKED_NAMES or (node.id.startswith("_") and node.id not in {"_", "__name__"}):

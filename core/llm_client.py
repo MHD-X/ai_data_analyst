@@ -65,6 +65,15 @@ class LLMClient:
         if not self.api_key:
             raise LLMAuthError("❌ LLM_API_KEY غير موجود. تحقق من ملف .env")
 
+        from urllib.parse import urlparse
+
+        parsed = urlparse(self.base_url)
+        if parsed.scheme != "https" and not (
+            parsed.scheme == "http" and parsed.hostname in {"localhost", "127.0.0.1", "::1"}
+        ):
+            raise LLMError("LLM_BASE_URL must use HTTPS except for localhost")
+        self._session = requests.Session()
+
     # --------------------------------------------------------
     # بناء الترويسات
     # --------------------------------------------------------
@@ -139,7 +148,7 @@ class LLMClient:
 
         for attempt in range(1, retries + 2):
             try:
-                resp = requests.post(
+                resp = self._session.post(
                     self._chat_endpoint(),
                     headers=headers,
                     json=payload,
@@ -182,7 +191,7 @@ class LLMClient:
         headers = self._build_headers()
 
         try:
-            with requests.post(
+            with self._session.post(
                 self._chat_endpoint(),
                 headers=headers,
                 json=payload,

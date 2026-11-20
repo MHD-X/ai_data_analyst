@@ -25,6 +25,7 @@ from typing import Iterator
 import pandas as pd
 
 from config import UPLOADS_DIR, get_setting
+from core.db import is_deployed_environment
 
 MASK = "<MASKED>"
 logger = logging.getLogger(__name__)
@@ -94,20 +95,19 @@ def save_encrypted(data: bytes, original_name: str) -> Path:
     """يحفظ bytes مشفّرة باسم آمن + .enc، أو يحفظها غير مشفّرة مع تحذير إذا لم يتوفر مفتاح."""
     UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
     digest = hashlib.sha256(data).hexdigest()[:12]
-    safe_name = safe_filename(original_name)
-    generic_stem = "file"
-    dest = UPLOADS_DIR / f"{generic_stem}_{digest}.enc"
+    dest = UPLOADS_DIR / f"file_{digest}.enc"
+
+    if is_deployed_environment() and not get_setting("DATA_ENCRYPTION_KEY"):
+        raise RuntimeError("DATA_ENCRYPTION_KEY is required in deployed environments")
 
     cipher = _cipher()
     if cipher is None:
         logger.warning("DATA_ENCRYPTION_KEY غير موجود؛ يتم حفظ الملف غير مشفّر في %s", dest)
-        dest = UPLOADS_DIR / f"{generic_stem}_{digest}.bin"
+        dest = UPLOADS_DIR / f"file_{digest}.bin"
         dest.write_bytes(data)
         return dest
 
-    # الاحتفاظ باسم آمن وموحّد لكن دون استخدام نص المستخدم في اسم الملف النهائي.
-    if "bad" in safe_name.lower() or "/" in safe_name:
-        dest = UPLOADS_DIR / f"{generic_stem}_{digest}.enc"
+    # الاحتفاظ باسم آمن وموحّد دون استخدام نص المستخدم في اسم الملف النهائي.
     dest.write_bytes(cipher.encrypt(data))
     return dest
 

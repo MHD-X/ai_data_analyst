@@ -55,3 +55,9 @@ def test_dbconnection_executescript_uses_cursor_for_postgresql():
 def test_deployed_environment_warning_logic(monkeypatch):
     monkeypatch.setenv("STREAMLIT_SERVER_HEADLESS", "true")
     assert is_deployed_environment() is True
+
+
+def test_explicit_db_path_stays_sqlite_when_database_url_is_set(monkeypatch, tmp_path):
+    monkeypatch.setenv("DATABASE_URL", "postgresql://user:pass@host/db")
+    mem = MemoryStore(db_path=tmp_path / "explicit.sqlite3")
+    assert mem.backend == "sqlite"
