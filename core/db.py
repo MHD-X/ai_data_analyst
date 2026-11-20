@@ -493,47 +493,30 @@ def _acquire_pg_connection(
     for attempt in range(1, CONNECT_RETRIES + 1):
         try:
             conn = pool.getconn()
-            if getattr(conn, "closed", 0):
-                pool.putconn(conn, close=True)
-                raise RuntimeError("PostgreSQL connection is stale.")
-            conn.autocommit = False
-            wrapped = DBConnection(conn, "postgresql")
-            try:
-                yield wrapped
-                wrapped.commit()
-            except Exception:
-                wrapped.rollback()
-                raise
-            finally:
-                if conn is not None:
-                    try:
-                        pool.putconn(conn)
-                    except Exception:
-                        pass
-            return
-        except Exception as exc:  # pragma: no cover - retry path
+            break
+        except Exception as exc:
             last_error = exc
-            if conn is not None:
-                try:
-                    if getattr(conn, "closed", 0):
-                        pool.putconn(conn, close=True)
-                    else:
-                        pool.putconn(conn)
-                except Exception:
-                    pass
-                conn = None
             if attempt < CONNECT_RETRIES:
                 time.sleep(0.2 * attempt)
-    if conn is not None:
+    if conn is None:
+        raise RuntimeError("Failed to open PostgreSQL connection after %d attempts" % CONNECT_RETRIES) from last_error
+
+    if getattr(conn, "closed", 0):
+        pool.putconn(conn, close=True)
+        raise RuntimeError("PostgreSQL connection is stale.")
+    conn.autocommit = False
+    wrapped = DBConnection(conn, "postgresql")
+    try:
+        yield wrapped
+        wrapped.commit()
+    except Exception:
+        wrapped.rollback()
+        raise
+    finally:
         try:
-            conn.rollback()
+            pool.putconn(conn)
         except Exception:
             pass
-        try:
-            pool.putconn(conn, close=True)
-        except Exception:
-            pass
-    raise RuntimeError(f"Failed to open PostgreSQL connection after {CONNECT_RETRIES} attempts") from last_error
 
 
 @contextmanager
@@ -546,10 +529,11 @@ def get_db_connection(
     PostgreSQL uses a pooled connection from psycopg2.pool.SimpleConnectionPool; SQLite uses a
     dedicated connection per context. Each call commits on success and rolls back on failure.
     """
-    database_url = database_url or get_database_url()
-    if db_path is not None and not database_url:
+    if db_path is not None:
         backend = "sqlite"
+        database_url = ""
     else:
+        database_url = database_url or get_database_url()
         backend = get_database_backend(database_url)
 
     if backend == "postgresql":

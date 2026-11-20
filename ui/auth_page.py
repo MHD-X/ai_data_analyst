@@ -3,7 +3,7 @@ from __future__ import annotations
 import streamlit as st
 
 from config import get_setting
-from core.auth import AuthStore, login, register, request_password_reset, resend_code, reset_password, verify_email
+from core.auth import AuthStore, login, register, request_password_reset, resend_code, reset_password, verify_email, session_login
 from utils.i18n import is_rtl, t
 
 
@@ -66,7 +66,7 @@ def _render_login_form() -> None:
     if submitted:
         result = login(email, password)
         if result.ok:
-            st.session_state["user"] = _user_session_payload(result.user)
+            session_login(st.session_state, _user_session_payload(result.user) or {})
             st.success(t(result.message_key))
             st.rerun()
         else:

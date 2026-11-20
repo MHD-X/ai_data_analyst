@@ -213,13 +213,15 @@ def read_data_file(file_path: str | Path) -> pd.DataFrame:
     ext = get_file_extension(path)
 
     if ext == "csv":
-        last_error: Exception | None = None
+        last_error: UnicodeDecodeError | None = None
         for encoding in ("utf-8-sig", "cp1256", "latin-1"):
             try:
                 return pd.read_csv(path, encoding=encoding)
-            except (UnicodeDecodeError, ValueError, Exception) as exc:
+            except UnicodeDecodeError as exc:
                 last_error = exc
-        raise ValueError(f"❌ فشل قراءة الملف: {path}") from last_error
+        if last_error is not None:
+            raise last_error
+        raise ValueError(f"❌ فشل قراءة الملف: {path}")
 
     if ext in ("xlsx", "xls"):
         return pd.read_excel(path)

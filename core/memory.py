@@ -294,13 +294,15 @@ class MemoryStore:
             conn.commit()
             return cur.rowcount > 0
 
-    def delete_session(self, session_id: int) -> bool:
-        """يحذف جلسة وكل ما يتعلق بها (CASCADE)."""
+    def delete_session(self, session_id: int, user_id: int | None = None) -> bool:
+        """يحذف جلسة وكل ما يتعلق بها (CASCADE)، مع سكوب اختياري للمستخدم."""
         with self._connect() as conn:
-            cur = conn.execute(
-                "DELETE FROM sessions WHERE id = ?",
-                (session_id,),
-            )
+            query = "DELETE FROM sessions WHERE id = ?"
+            params: list[Any] = [session_id]
+            if user_id is not None:
+                query += " AND user_id = ?"
+                params.append(int(user_id))
+            cur = conn.execute(query, tuple(params))
             conn.commit()
             return cur.rowcount > 0
 
@@ -349,17 +351,16 @@ class MemoryStore:
         logger.info("📊 ملف جديد #%d: %s (%d×%d) user=%s", dataset_id, filename, rows, cols, user_id)
         return dataset_id
 
-    def get_dataset(self, dataset_id: int) -> Dataset | None:
+    def get_dataset(self, dataset_id: int, user_id: int | None = None) -> Dataset | None:
         """يعيد dataset بالمعرّف."""
+        query = "SELECT * FROM datasets WHERE id = ?"
+        params: list[Any] = [dataset_id]
+        if user_id is not None:
+            query += " AND user_id = ?"
+            params.append(int(user_id))
         with self._connect() as conn:
-            row = conn.execute(
-                "SELECT * FROM datasets WHERE id = ?",
-                (dataset_id,),
-            ).fetchone()
-
-        if row is None:
-            return None
-        return self._row_to_dataset(dict(row))
+            row = conn.execute(query, tuple(params)).fetchone()
+        return None if row is None else self._row_to_dataset(dict(row))
 
     def get_dataset_by_hash(self, file_hash: str, user_id: int | None = None) -> Dataset | None:
         """يعيد dataset ببصمة الملف (لو رُفع سابقاً)."""
@@ -400,13 +401,15 @@ class MemoryStore:
 
         return [self._row_to_dataset(d) for d in self._rows_to_dicts(rows)]
 
-    def delete_dataset(self, dataset_id: int) -> bool:
+    def delete_dataset(self, dataset_id: int, user_id: int | None = None) -> bool:
         """يحذف dataset وكل عملياته."""
+        query = "DELETE FROM datasets WHERE id = ?"
+        params: list[Any] = [dataset_id]
+        if user_id is not None:
+            query += " AND user_id = ?"
+            params.append(int(user_id))
         with self._connect() as conn:
-            cur = conn.execute(
-                "DELETE FROM datasets WHERE id = ?",
-                (dataset_id,),
-            )
+            cur = conn.execute(query, tuple(params))
             conn.commit()
             return cur.rowcount > 0
 
@@ -520,13 +523,15 @@ class MemoryStore:
             conn.commit()
             return cur.rowcount > 0
 
-    def delete_operation(self, operation_id: int) -> bool:
+    def delete_operation(self, operation_id: int, user_id: int | None = None) -> bool:
         """يحذف عملية."""
+        query = "DELETE FROM operations WHERE id = ?"
+        params: list[Any] = [operation_id]
+        if user_id is not None:
+            query += " AND user_id = ?"
+            params.append(int(user_id))
         with self._connect() as conn:
-            cur = conn.execute(
-                "DELETE FROM operations WHERE id = ?",
-                (operation_id,),
-            )
+            cur = conn.execute(query, tuple(params))
             conn.commit()
             return cur.rowcount > 0
 
@@ -748,18 +753,20 @@ class MemoryStore:
         """يعيد إحصائيات شاملة عن قاعدة البيانات."""
         with self._connect() as conn:
             stats: dict[str, Any] = {}
+            where, params = (" WHERE user_id = ?", [int(user_id)]) if user_id is not None else ("", [])
             filters = " WHERE user_id = ?" if user_id is not None else ""
             params: list[Any] = [int(user_id)] if user_id is not None else []
 
             stats["total_sessions"] = int(
-                conn.execute(f"SELECT COUNT(*) AS n FROM sessions{filters}", tuple(params)).fetchone()["n"]
+                conn.execute(f"SELECT COUNT(*) AS n FROM sessions{where}", tuple(params)).fetchone()["n"]
             )
             stats["total_datasets"] = int(
-                conn.execute(f"SELECT COUNT(*) AS n FROM datasets{filters}", tuple(params)).fetchone()["n"]
+                conn.execute(f"SELECT COUNT(*) AS n FROM datasets{where}", tuple(params)).fetchone()["n"]
             )
             stats["total_operations"] = int(
-                conn.execute(f"SELECT COUNT(*) AS n FROM operations{filters}", tuple(params)).fetchone()["n"]
+                conn.execute(f"SELECT COUNT(*) AS n FROM operations{where}", tuple(params)).fetchone()["n"]
             )
+            successful_where = " WHERE success = 1" + (" AND user_id = ?" if user_id is not None else "")
             stats["successful_operations"] = int(
                 conn.execute(
                     f"SELECT COUNT(*) AS n FROM operations WHERE success = 1{filters and ' AND user_id = ?'}",

@@ -359,7 +359,7 @@ class AuthStore:
                 send_already_registered_email(email)
             except Exception:
                 pass
-            return AuthResult(False, "auth.check_email")
+            return AuthResult(True, "auth.registration_success", code=None)
 
         password_hash = _hash_password(password)
         with self._connect() as conn:
